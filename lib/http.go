@@ -3,10 +3,42 @@ package lib
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 )
+
+type StatusCoder interface {
+	StatusCode() int
+}
+
+type httpError struct {
+	Status  int
+	Message string
+}
+
+func newHTTPError(status int) httpError {
+	return httpError{
+		Status:  status,
+		Message: http.StatusText(status),
+	}
+}
+
+func (e httpError) Error() string {
+	return fmt.Sprintf("%d %s", e.Status, e.Message)
+}
+
+func (e httpError) StatusCode() int {
+	return e.Status
+}
+
+var ErrHTTPBadRequest = newHTTPError(http.StatusBadRequest)
+var ErrHTTPUnauthorized = newHTTPError(http.StatusUnauthorized)
+var ErrHTTPForbidden = newHTTPError(http.StatusForbidden)
+var ErrHTTPNotFound = newHTTPError(http.StatusNotFound)
+var ErrHTTPConflict = newHTTPError(http.StatusConflict)
+var ErrHTTPInternal = newHTTPError(http.StatusInternalServerError)
 
 func safeCall(f func()) any {
 	var err any
@@ -24,6 +56,8 @@ func safeCall(f func()) any {
 
 	return err
 }
+
+type Router func(pattern string, handler http.HandlerFunc)
 
 type mwResponseWriter struct {
 	http.ResponseWriter
@@ -53,6 +87,10 @@ func Middleware(log *slog.Logger, next http.HandlerFunc) http.HandlerFunc {
 			next(w1, r)
 		})
 
+		if err != nil {
+			SendHTTPError(w, 0, ErrHTTPInternal)
+		}
+
 		t1 := time.Now()
 
 		status := w1.statusCode
@@ -72,20 +110,11 @@ func APIHandler(next APIFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		res := next(r.Context(), r)
 		if err, ok := res.(error); ok {
-			data := struct {
-				Error string `json:"error"`
-			}{
-				Error: err.Error(),
-			}
-
-			sendHTTPResponse(w, HTTPResponse{
-				Status: http.StatusOK,
-				Data:   data,
-			})
+			SendHTTPError(w, 0, err)
 		} else if data, ok := res.(HTTPResponse); ok {
-			sendHTTPResponse(w, data)
+			SendHTTPResponse(w, data)
 		} else {
-			sendHTTPResponse(w, HTTPResponse{
+			SendHTTPResponse(w, HTTPResponse{
 				Status: http.StatusOK,
 				Data:   res,
 			})
@@ -93,7 +122,28 @@ func APIHandler(next APIFunc) http.HandlerFunc {
 	}
 }
 
-func sendHTTPResponse(w http.ResponseWriter, res HTTPResponse) {
+func SendHTTPError(w http.ResponseWriter, status int, err error) {
+	data := struct {
+		Error string `json:"error"`
+	}{
+		Error: err.Error(),
+	}
+
+	if status == 0 {
+		if he, ok := err.(StatusCoder); ok {
+			status = he.StatusCode()
+		} else {
+			status = http.StatusInternalServerError
+		}
+	}
+
+	SendHTTPResponse(w, HTTPResponse{
+		Status: status,
+		Data:   data,
+	})
+}
+
+func SendHTTPResponse(w http.ResponseWriter, res HTTPResponse) {
 	data, err := json.Marshal(res.Data)
 	if err != nil {
 		w.WriteHeader(500)

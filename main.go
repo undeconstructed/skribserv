@@ -60,14 +60,15 @@ func main() {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
-	theAPI, err := app.New()
+	theApp, err := app.New()
 	if err != nil {
 		log.Error("make api", "err", err)
 		os.Exit(1)
 	}
 
-	mux.HandleFunc("GET /api/users/{id}", lib.Middleware(log, lib.APIHandler(theAPI.GetUser)))
-	mux.HandleFunc("GET /api/texts/{id}", lib.Middleware(log, lib.APIHandler(theAPI.GetText)))
+	theApp.Install(func(pattern string, handler http.HandlerFunc) {
+		mux.HandleFunc(pattern, lib.Middleware(log, handler))
+	})
 
 	srv := http.Server{
 		Handler: mux,
