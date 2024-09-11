@@ -5,22 +5,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
+	"github.com/undeconstructed/skribserv/db"
 	"github.com/undeconstructed/skribserv/lib"
 )
 
 type User struct {
-	ID   string
-	Pass string
-	Name string
+	IDf  string `json:"-"`
+	Pass string `json:"pass"`
+	Name string `json:"name"`
 }
 
+func (e *User) ID() string     { return e.IDf }
+func (e *User) Type() string   { return "user" }
+func (e *User) SetID(s string) { e.IDf = s }
+
 type Text struct {
-	ID     string
-	UserID string
-	Text   string
+	IDf    string `json:"-"`
+	UserID string `json:"user_id"`
+	Text   string `json:"text"`
 }
+
+func (e *Text) ID() string     { return e.IDf }
+func (e *Text) Type() string   { return "text" }
+func (e *Text) SetID(s string) { e.IDf = s }
 
 type EntityResponse struct {
 	Message string `json:"message"`
@@ -28,93 +38,116 @@ type EntityResponse struct {
 }
 
 type App struct {
-	users map[string]*User
-	texts map[string]*Text
+	db *db.DB
 }
 
 func New() (*App, error) {
-	users := map[string]*User{}
-	texts := map[string]*Text{}
-
-	app := &App{
-		users: users,
-		texts: texts,
+	db, err := db.New("db.txt")
+	if err != nil {
+		return nil, fmt.Errorf("db: %w", err)
 	}
 
-	app.putUser("phil", "pass1", "Phil")
-	app.putText("", "phil", "this is the text")
+	app := &App{
+		db: db,
+	}
 
 	return app, nil
 }
 
-func (a *App) putUser(id, pass, name string) (*User, error) {
+func log(ctx context.Context) *slog.Logger {
+	return lib.GetLogger(ctx)
+}
+
+func (a *App) putUser(ctx context.Context, id, pass, name string) (*User, error) {
 	if id == "" {
 		id = lib.MakeRandomID("u", 5)
 	}
 
-	user0 := a.users[id]
-	if user0 != nil {
-		return nil, lib.ErrHTTPConflict
+	_, err := a.getUser(ctx, id)
+	if err != nil {
+		if !errors.Is(err, db.ErrNotFound) {
+			log(ctx).Error("load user", "err", err)
+			return nil, lib.ErrHTTPConflict
+		}
 	}
 
 	user1 := &User{
-		ID:   id,
+		IDf:  id,
 		Pass: pass,
 		Name: name,
 	}
 
-	a.users[id] = user1
+	err = a.db.Store(ctx, user1)
+	if err != nil {
+		log(ctx).Error("store user", "err", err)
+		return nil, lib.ErrHTTPConflict
+	}
 
 	return user1, nil
 }
 
-func (a *App) getUser(id string) (*User, error) {
-	user := a.users[id]
-	if user == nil {
-		return nil, lib.ErrHTTPNotFound
+func (a *App) getUser(ctx context.Context, id string) (*User, error) {
+	user0 := &User{
+		IDf: id,
 	}
 
-	return user, nil
+	err := a.db.Load(ctx, user0)
+	if err != nil {
+		return nil, err
+	}
+
+	return user0, nil
 }
 
-func (a *App) putText(id, userID, text string) (*Text, error) {
+func (a *App) putText(ctx context.Context, id, userID, text string) (*Text, error) {
 	if id == "" {
 		id = lib.MakeRandomID("t", 5)
 	}
 
-	text0 := a.texts[id]
-	if text0 != nil {
-		return nil, lib.ErrHTTPConflict
+	_, err := a.getText(ctx, id)
+	if err != nil {
+		if !errors.Is(err, db.ErrNotFound) {
+			log(ctx).Error("load user", "err", err)
+			return nil, lib.ErrHTTPConflict
+		}
 	}
 
 	text1 := &Text{
-		ID:     id,
+		IDf:    id,
 		UserID: userID,
 		Text:   text,
 	}
 
-	a.texts[id] = text1
+	err = a.db.Store(ctx, text1)
+	if err != nil {
+		log(ctx).Error("store text", "err", err)
+		return nil, lib.ErrHTTPConflict
+	}
 
 	return text1, nil
 }
 
-func (a *App) getText(id string) (*Text, error) {
-	text := a.texts[id]
-	if text == nil {
-		return nil, lib.ErrHTTPNotFound
+func (a *App) getText(ctx context.Context, id string) (*Text, error) {
+	text0 := &Text{
+		IDf: id,
 	}
 
-	return text, nil
+	err := a.db.Load(ctx, text0)
+	if err != nil {
+		return nil, err
+	}
+
+	return text0, nil
 }
 
-func (a *App) getTextsByUserID(userID string) ([]*Text, error) {
+func (a *App) getTextsByUserID(ctx context.Context, userID string) ([]*Text, error) {
 	var out []*Text
 
-	for _, text := range a.texts {
-		if text.UserID == userID {
-			out = append(out, text)
-		}
-	}
+	// for _, text := range a.texts {
+	// 	if text.UserID == userID {
+	// 		out = append(out, text)
+	// 	}
+	// }
 
 	return out, nil
 }
@@ -133,14 +166,16 @@ const ctxKeyUser ctxKey = 1
 
 func (a *App) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		uID, pass, ok := r.BasicAuth()
 		if !ok {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
 			return
 		}
 
-		user, ok := a.users[uID]
-		if !ok {
+		user, err := a.getUser(ctx, uID)
+		if err != nil {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
 			return
 		}
@@ -153,8 +188,7 @@ func (a *App) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		ctx1 := context.WithValue(r.Context(), ctxKeyUser, user)
 		r1 := r.WithContext(ctx1)
 
-		log := lib.GetLogger(r.Context())
-		log.Debug("auth", "user", user.ID)
+		log(ctx).Debug("auth", "user", user.ID)
 
 		next(w, r1)
 	}
@@ -181,11 +215,11 @@ func (a *App) GetUsers(ctx context.Context, r *http.Request) any {
 
 func (a *App) GetUser(ctx context.Context, r *http.Request) any {
 	log := lib.GetLogger(r.Context())
-	log.Info("get api a happening here")
+	log.Info("get user happening here")
 
 	id := r.PathValue("id")
 
-	user, err := a.getUser(id)
+	user, err := a.getUser(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -193,7 +227,7 @@ func (a *App) GetUser(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "get " + id,
 		Entity: UserJSON{
-			ID:   user.ID,
+			ID:   user.IDf,
 			Name: user.Name,
 		},
 	}
@@ -210,7 +244,7 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 
 	user := a.getRequestUser(ctx)
 
-	if text1.UserID != "" && text1.UserID != user.ID {
+	if text1.UserID != "" && text1.UserID != user.IDf {
 		return lib.ErrHTTPForbidden
 	}
 
@@ -218,9 +252,9 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 		return fmt.Errorf("%w: missing text", lib.ErrHTTPBadRequest)
 	}
 
-	text1.UserID = user.ID
+	text1.UserID = user.IDf
 
-	text2, err := a.putText("", text1.UserID, text1.Text)
+	text2, err := a.putText(ctx, "", text1.UserID, text1.Text)
 	if err != nil {
 		return err
 	}
@@ -228,7 +262,7 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "post",
 		Entity: TextJSON{
-			ID:     text2.ID,
+			ID:     text2.IDf,
 			UserID: text2.UserID,
 			Text:   text2.Text,
 		},
@@ -241,7 +275,7 @@ func (a *App) GetTexts(ctx context.Context, r *http.Request) any {
 		return errors.New("only querying by userID is supported")
 	}
 
-	texts, err := a.getTextsByUserID(userID)
+	texts, err := a.getTextsByUserID(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -254,11 +288,11 @@ func (a *App) GetTexts(ctx context.Context, r *http.Request) any {
 
 func (a *App) GetText(ctx context.Context, r *http.Request) any {
 	log := lib.GetLogger(ctx)
-	log.Info("get api b happening here")
+	log.Info("get text happening here")
 
 	id := r.PathValue("id")
 
-	text, err := a.getText(id)
+	text, err := a.getText(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -266,7 +300,7 @@ func (a *App) GetText(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "get " + id,
 		Entity: TextJSON{
-			ID:     text.ID,
+			ID:     text.IDf,
 			UserID: text.UserID,
 			Text:   text.Text,
 		},

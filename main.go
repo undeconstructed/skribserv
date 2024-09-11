@@ -56,7 +56,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /", lib.Middleware(log, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /", lib.Middleware(log, true, func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
@@ -67,7 +67,7 @@ func main() {
 	}
 
 	theApp.Install(func(pattern string, handler http.HandlerFunc) {
-		mux.HandleFunc(pattern, lib.Middleware(log, handler))
+		mux.HandleFunc(pattern, lib.Middleware(log, !*devMode, handler))
 	})
 
 	srv := http.Server{

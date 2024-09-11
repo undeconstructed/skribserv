@@ -69,7 +69,7 @@ func (w *mwResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func Middleware(log *slog.Logger, next http.HandlerFunc) http.HandlerFunc {
+func Middleware(log *slog.Logger, recover bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := MakeRandomID("req", 8)
 
@@ -83,9 +83,14 @@ func Middleware(log *slog.Logger, next http.HandlerFunc) http.HandlerFunc {
 
 		t0 := time.Now()
 
-		err := safeCall(func() {
+		var err any
+		if recover {
+			err = safeCall(func() {
+				next(w1, r)
+			})
+		} else {
 			next(w1, r)
-		})
+		}
 
 		if err != nil {
 			SendHTTPError(w, 0, ErrHTTPInternal)
