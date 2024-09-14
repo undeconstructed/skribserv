@@ -16,16 +16,35 @@ import (
 var ErrNotFound = errors.New("not found")
 var ErrCorrupt = errors.New("corrupt")
 
-type Entity interface {
-	ID() string
-	Type() string
-	SetID(s string)
+type ID unique.Handle[string]
+
+func Mkid(in string) ID {
+	return ID(unique.Make(in))
 }
 
-type ID = unique.Handle[string]
+func (i ID) String() string {
+	return unique.Handle[string](i).Value()
+}
 
-func mkid(in string) ID {
-	return ID(unique.Make(in))
+func (i *ID) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+
+	*i = ID(unique.Make(s))
+
+	return nil
+}
+
+func (i ID) MarshalJSON() ([]byte, error) {
+	return json.Marshal(i.String())
+}
+
+type Entity interface {
+	ID() ID
+	Type() ID
+	SetID(s ID)
 }
 
 type entry struct {
@@ -37,7 +56,7 @@ type entry struct {
 // species -> id -> entry
 type entries map[ID]map[ID]*entry
 
-type IndexerFunc func(e Entity) string
+type IndexerFunc func(e Entity) ID
 
 type indexer struct {
 	name ID
@@ -162,7 +181,7 @@ func New(path string) (*DB, error) {
 			// otherwise mark the data as consumed and continue to the next buffer
 			readable = nil
 		} else {
-			speciesH, idH := mkid(species), mkid(id)
+			speciesH, idH := Mkid(species), Mkid(id)
 
 			// save the last line
 			forSpecies, ok := entries[speciesH]
@@ -226,8 +245,8 @@ func New(path string) (*DB, error) {
 	}, nil
 }
 
-func (db *DB) Index(ctx context.Context, e Entity, name string, indexFn IndexerFunc) error {
-	speciesH, indexH := mkid(e.Type()), mkid(name)
+func (db *DB) Index(ctx context.Context, e Entity, name ID, indexFn IndexerFunc) error {
+	speciesH, indexH := e.Type(), name
 
 	// save the indexer for future changes
 
@@ -253,7 +272,7 @@ func (db *DB) Index(ctx context.Context, e Entity, name string, indexFn IndexerF
 			return err
 		}
 
-		value := mkid(indexFn(e))
+		value := indexFn(e)
 
 		ids := index[value]
 		if ids == nil {
@@ -278,7 +297,7 @@ func (db *DB) Index(ctx context.Context, e Entity, name string, indexFn IndexerF
 }
 
 func (db *DB) storeRaw(species, idH ID, data []byte) (*entry, error) {
-	meta := []byte(species.Value() + " " + idH.Value() + " ")
+	meta := []byte(species.String() + " " + idH.String() + " ")
 	metaLength := len(meta)
 
 	_, err := db.file.Write(meta)
@@ -328,7 +347,7 @@ func (db *DB) storeRaw(species, idH ID, data []byte) (*entry, error) {
 }
 
 func (db *DB) Store(ctx context.Context, e Entity) error {
-	speciesH, idH := mkid(e.Type()), mkid(e.ID())
+	speciesH, idH := e.Type(), e.ID()
 
 	data, err := json.Marshal(e)
 	if err != nil {
@@ -355,7 +374,7 @@ func (db *DB) Store(ctx context.Context, e Entity) error {
 	for _, idxr := range db.indexers[speciesH] {
 		index := db.indexes[speciesH][idxr.name]
 
-		value := mkid(idxr.fn(e))
+		value := idxr.fn(e)
 
 		ids := index[value]
 		if ids == nil {
@@ -400,13 +419,13 @@ func (db *DB) parse(idH ID, data []byte, e Entity) error {
 		return fmt.Errorf("%w: %s", ErrCorrupt, err)
 	}
 
-	e.SetID(idH.Value())
+	e.SetID(idH)
 
 	return nil
 }
 
 func (db *DB) Load(ctx context.Context, e Entity) error {
-	speciesH, idH := mkid(e.Type()), mkid(e.ID())
+	speciesH, idH := e.Type(), e.ID()
 
 	_, data, err := db.loadRaw(speciesH, idH)
 	if err != nil {
@@ -416,13 +435,13 @@ func (db *DB) Load(ctx context.Context, e Entity) error {
 	return db.parse(idH, data, e)
 }
 
-func Query[E Entity](ctx context.Context, db *DB, index, value string, es []E) error {
+func Query[E Entity](ctx context.Context, db *DB, index, value ID, es []E) error {
 	return db.Query(ctx, index, value, es)
 }
 
 // Query
 // es must be *[]E where E is an entity type
-func (db *DB) Query(ctx context.Context, index, value string, es any) error {
+func (db *DB) Query(ctx context.Context, index, value ID, es any) error {
 	rv := reflect.ValueOf(es) // *[]x
 	rt := rv.Type()
 
@@ -444,7 +463,7 @@ func (db *DB) Query(ctx context.Context, index, value string, es any) error {
 	entityType := rt.Elem() // x
 	species := reflect.New(entityType).Interface().(Entity).Type()
 
-	speciesH, indexH, valueH := mkid(species), mkid(index), mkid(value)
+	speciesH, indexH, valueH := species, index, value
 
 	list, ok := db.indexes[speciesH][indexH][valueH]
 	if !ok {
@@ -456,7 +475,7 @@ func (db *DB) Query(ctx context.Context, index, value string, es any) error {
 		eRv := reflect.New(entityType)
 		e := eRv.Interface().(Entity)
 
-		e.SetID(idH.Value())
+		e.SetID(idH)
 
 		err := db.Load(ctx, e)
 		if err != nil {

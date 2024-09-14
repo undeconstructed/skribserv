@@ -12,25 +12,29 @@ import (
 	"github.com/undeconstructed/skribserv/lib"
 )
 
+var userType = db.Mkid("user")
+var textType = db.Mkid("text")
+var textByUser = db.Mkid("byUser")
+
 type User struct {
-	IDf  string `json:"-"`
+	IDf  db.ID  `json:"-"`
 	Pass string `json:"pass"`
 	Name string `json:"name"`
 }
 
-func (e *User) ID() string     { return e.IDf }
-func (e *User) Type() string   { return "user" }
-func (e *User) SetID(s string) { e.IDf = s }
+func (e *User) ID() db.ID     { return e.IDf }
+func (e *User) Type() db.ID   { return userType }
+func (e *User) SetID(s db.ID) { e.IDf = s }
 
 type Text struct {
-	IDf    string `json:"-"`
-	UserID string `json:"user_id"`
+	IDf    db.ID  `json:"-"`
+	UserID db.ID  `json:"user_id"`
 	Text   string `json:"text"`
 }
 
-func (e *Text) ID() string     { return e.IDf }
-func (e *Text) Type() string   { return "text" }
-func (e *Text) SetID(s string) { e.IDf = s }
+func (e *Text) ID() db.ID     { return e.IDf }
+func (e *Text) Type() db.ID   { return textType }
+func (e *Text) SetID(s db.ID) { e.IDf = s }
 
 type EntityResponse struct {
 	Message string `json:"message"`
@@ -42,13 +46,17 @@ type App struct {
 }
 
 func New() (*App, error) {
-	db, err := db.New("db.txt")
+	store, err := db.New("db.txt")
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
 	}
 
+	store.Index(context.Background(), &Text{}, textByUser, func(e db.Entity) db.ID {
+		return e.(*Text).UserID
+	})
+
 	app := &App{
-		db: db,
+		db: store,
 	}
 
 	return app, nil
@@ -72,7 +80,7 @@ func (a *App) putUser(ctx context.Context, id, pass, name string) (*User, error)
 	}
 
 	user1 := &User{
-		IDf:  id,
+		IDf:  db.Mkid(id),
 		Pass: pass,
 		Name: name,
 	}
@@ -88,7 +96,7 @@ func (a *App) putUser(ctx context.Context, id, pass, name string) (*User, error)
 
 func (a *App) getUser(ctx context.Context, id string) (*User, error) {
 	user0 := &User{
-		IDf: id,
+		IDf: db.Mkid(id),
 	}
 
 	err := a.db.Load(ctx, user0)
@@ -113,8 +121,8 @@ func (a *App) putText(ctx context.Context, id, userID, text string) (*Text, erro
 	}
 
 	text1 := &Text{
-		IDf:    id,
-		UserID: userID,
+		IDf:    db.Mkid(id),
+		UserID: db.Mkid(userID),
 		Text:   text,
 	}
 
@@ -129,7 +137,7 @@ func (a *App) putText(ctx context.Context, id, userID, text string) (*Text, erro
 
 func (a *App) getText(ctx context.Context, id string) (*Text, error) {
 	text0 := &Text{
-		IDf: id,
+		IDf: db.Mkid(id),
 	}
 
 	err := a.db.Load(ctx, text0)
@@ -140,14 +148,13 @@ func (a *App) getText(ctx context.Context, id string) (*Text, error) {
 	return text0, nil
 }
 
-func (a *App) getTextsByUserID(ctx context.Context, userID string) ([]*Text, error) {
-	var out []*Text
+func (a *App) getTextsByUserID(ctx context.Context, userID string) ([]Text, error) {
+	var out []Text
 
-	// for _, text := range a.texts {
-	// 	if text.UserID == userID {
-	// 		out = append(out, text)
-	// 	}
-	// }
+	err := a.db.Query(ctx, textByUser, db.Mkid(userID), &out)
+	if err != nil {
+		return nil, err
+	}
 
 	return out, nil
 }
@@ -156,7 +163,7 @@ func (a *App) Install(mux lib.Router) {
 	mux("GET /api/users", a.AuthMiddleware(lib.APIHandler(a.GetUsers)))
 	mux("GET /api/users/{id}", a.AuthMiddleware(lib.APIHandler(a.GetUser)))
 	mux("POST /api/texts", a.AuthMiddleware(lib.APIHandler(a.PostText)))
-	mux("GET /api/texts", a.AuthMiddleware(lib.APIHandler(a.GetTexts)))
+	mux("GET /api/texts/", a.AuthMiddleware(lib.APIHandler(a.GetTexts)))
 	mux("GET /api/texts/{id}", a.AuthMiddleware(lib.APIHandler(a.GetText)))
 }
 
@@ -205,7 +212,7 @@ type UserJSON struct {
 
 type TextJSON struct {
 	ID     string `json:"id"`
-	UserID string `json:"userID"`
+	UserID string `json:"user_id"`
 	Text   string `json:"text"`
 }
 
@@ -227,7 +234,7 @@ func (a *App) GetUser(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "get " + id,
 		Entity: UserJSON{
-			ID:   user.IDf,
+			ID:   user.IDf.String(),
 			Name: user.Name,
 		},
 	}
@@ -244,7 +251,7 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 
 	user := a.getRequestUser(ctx)
 
-	if text1.UserID != "" && text1.UserID != user.IDf {
+	if text1.UserID != "" && text1.UserID != user.IDf.String() {
 		return lib.ErrHTTPForbidden
 	}
 
@@ -252,7 +259,7 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 		return fmt.Errorf("%w: missing text", lib.ErrHTTPBadRequest)
 	}
 
-	text1.UserID = user.IDf
+	text1.UserID = user.IDf.String()
 
 	text2, err := a.putText(ctx, "", text1.UserID, text1.Text)
 	if err != nil {
@@ -262,8 +269,8 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "post",
 		Entity: TextJSON{
-			ID:     text2.IDf,
-			UserID: text2.UserID,
+			ID:     text2.IDf.String(),
+			UserID: text2.UserID.String(),
 			Text:   text2.Text,
 		},
 	}
@@ -272,7 +279,7 @@ func (a *App) PostText(ctx context.Context, r *http.Request) any {
 func (a *App) GetTexts(ctx context.Context, r *http.Request) any {
 	userID := r.URL.Query().Get("userID")
 	if userID == "" {
-		return errors.New("only querying by userID is supported")
+		return fmt.Errorf("%w: only querying by userID is supported", lib.ErrHTTPBadRequest)
 	}
 
 	texts, err := a.getTextsByUserID(ctx, userID)
@@ -280,9 +287,19 @@ func (a *App) GetTexts(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
+	out := make([]TextJSON, 0, len(texts))
+
+	for _, text := range texts {
+		out = append(out, TextJSON{
+			ID:     text.IDf.String(),
+			UserID: text.UserID.String(),
+			Text:   text.Text,
+		})
+	}
+
 	return EntityResponse{
 		Message: "get texts by " + userID,
-		Entity:  texts,
+		Entity:  out,
 	}
 }
 
@@ -300,8 +317,8 @@ func (a *App) GetText(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "get " + id,
 		Entity: TextJSON{
-			ID:     text.IDf,
-			UserID: text.UserID,
+			ID:     text.IDf.String(),
+			UserID: text.UserID.String(),
 			Text:   text.Text,
 		},
 	}

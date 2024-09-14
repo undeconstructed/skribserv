@@ -10,20 +10,20 @@ import (
 )
 
 type testEntity struct {
-	IDField string `json:"-"`
+	IDField ID     `json:"-"`
 	Field   string `json:"field"`
 }
 
-func (e *testEntity) SetID(s string) {
+func (e *testEntity) SetID(s ID) {
 	e.IDField = s
 }
 
-func (e *testEntity) ID() string {
+func (e *testEntity) ID() ID {
 	return e.IDField
 }
 
-func (*testEntity) Type() string {
-	return "test"
+func (*testEntity) Type() ID {
+	return Mkid("test")
 }
 
 func dumpData(filename string, data string) error {
@@ -50,44 +50,52 @@ test id4 {"field":"value 4"}
 	t.Logf("%#v", db)
 
 	e2 := &testEntity{
-		IDField: "id2",
+		IDField: Mkid("id2"),
 	}
 
-	_, byt1, err := db.loadRaw(mkid("test"), mkid("id1"))
+	// load raw 1
+
+	_, byt1, err := db.loadRaw(Mkid("test"), Mkid("id1"))
 	require.NoError(t, err, "load raw 1")
 
 	t.Log("bytes", string(byt1))
 
-	_, byt2, err := db.loadRaw(mkid("test"), mkid("id2"))
+	// load raw 2
+
+	_, byt2, err := db.loadRaw(Mkid("test"), Mkid("id2"))
 	require.NoError(t, err, "load raw 2")
 
 	t.Log("bytes", string(byt2))
+
+	// load 2
 
 	err = db.Load(ctx, e2)
 	require.NoError(t, err, "load 2")
 
 	assert.Equal(t, "value 2", e2.Field)
 
+	// store 4
+
 	e4 := &testEntity{
-		IDField: "id4",
+		IDField: Mkid("id4"),
 		Field:   "value 4",
 	}
 
 	err = db.Store(ctx, e4)
 	require.NoError(t, err, "store 4")
 
+	// load 4
+
 	e4 = &testEntity{
-		IDField: "id4",
+		IDField: Mkid("id4"),
 	}
 
 	err = db.Load(ctx, e4)
-	require.NoError(t, err, "load 2")
+	require.NoError(t, err, "load 4")
 
-	assert.Equal(t, "value 2", e2.Field)
+	assert.Equal(t, "value 4", e4.Field)
 
 	t.Logf("%#v", db)
-
-	t.Fail()
 }
 
 func TestIndex(t *testing.T) {
@@ -109,8 +117,8 @@ test id4 {"field":"value 4"}
 
 	// index by value
 
-	err = db.Index(ctx, &testEntity{}, "idx1", func(x Entity) string {
-		return x.(*testEntity).Field
+	err = db.Index(ctx, &testEntity{}, Mkid("idx1"), func(x Entity) ID {
+		return Mkid(x.(*testEntity).Field)
 	})
 	require.NoError(t, err, "index")
 
@@ -118,7 +126,7 @@ test id4 {"field":"value 4"}
 
 	var list []testEntity
 
-	err = db.Query(ctx, "idx1", "value 4", &list)
+	err = db.Query(ctx, Mkid("idx1"), Mkid("value 4"), &list)
 	require.NoError(t, err, "query")
 
 	assert.Len(t, list, 2, "result list: %v", list)
@@ -126,7 +134,7 @@ test id4 {"field":"value 4"}
 	// add a new entity, with same value
 
 	e100 := testEntity{
-		IDField: "id100",
+		IDField: Mkid("id100"),
 		Field:   "value 4",
 	}
 
@@ -135,7 +143,7 @@ test id4 {"field":"value 4"}
 
 	// query by value again
 
-	err = db.Query(ctx, "idx1", "value 4", &list)
+	err = db.Query(ctx, Mkid("idx1"), Mkid("value 4"), &list)
 	require.NoError(t, err, "query")
 
 	assert.Len(t, list, 3, "result list: %v", list)
