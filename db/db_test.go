@@ -2,7 +2,11 @@ package db
 
 import (
 	"context"
+	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testEntity struct {
@@ -22,14 +26,26 @@ func (*testEntity) Type() string {
 	return "test"
 }
 
+func dumpData(filename string, data string) error {
+	return os.WriteFile(filename, []byte(data), 0600)
+}
+
 func TestNew(t *testing.T) {
 	ctx := context.Background()
 
+	startData := `test id1 {"field":"value 1 ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................."}
+test id2 {"field":"value 2"}
+test id3 {"field":"value 3"}
+test id4 {"field":"value 4"}
+test id5 {"field":"value 4"}
+test id4 {"field":"value 4"}
+`
+
+	err := dumpData("test.data", startData)
+	require.NoError(t, err, "dump")
+
 	db, err := New("test.data")
-	if err != nil {
-		t.Errorf("setup err: %v", err)
-		t.FailNow()
-	}
+	require.NoError(t, err, "setup")
 
 	t.Logf("%#v", db)
 
@@ -37,28 +53,20 @@ func TestNew(t *testing.T) {
 		IDField: "id2",
 	}
 
-	byt1, err := db.LoadRaw(ctx, "test", "id1")
-	if err != nil {
-		t.Errorf("load err: %v", err)
-	}
+	_, byt1, err := db.loadRaw(mkid("test"), mkid("id1"))
+	require.NoError(t, err, "load raw 1")
 
 	t.Log("bytes", string(byt1))
 
-	byt2, err := db.LoadRaw(ctx, "test", "id2")
-	if err != nil {
-		t.Errorf("load err: %v", err)
-	}
+	_, byt2, err := db.loadRaw(mkid("test"), mkid("id2"))
+	require.NoError(t, err, "load raw 2")
 
 	t.Log("bytes", string(byt2))
 
 	err = db.Load(ctx, e2)
-	if err != nil {
-		t.Errorf("load err: %v", err)
-	}
+	require.NoError(t, err, "load 2")
 
-	if e2.Field != "value 2" {
-		t.Errorf("value err: %v", e2.Field)
-	}
+	assert.Equal(t, "value 2", e2.Field)
 
 	e4 := &testEntity{
 		IDField: "id4",
@@ -66,24 +74,69 @@ func TestNew(t *testing.T) {
 	}
 
 	err = db.Store(ctx, e4)
-	if err != nil {
-		t.Errorf("store err: %v", err)
-	}
+	require.NoError(t, err, "store 4")
 
 	e4 = &testEntity{
 		IDField: "id4",
 	}
 
 	err = db.Load(ctx, e4)
-	if err != nil {
-		t.Errorf("load err: %v", err)
-	}
+	require.NoError(t, err, "load 2")
 
-	if e4.Field != "value 4" {
-		t.Errorf("value err: %v", e4.Field)
-	}
+	assert.Equal(t, "value 2", e2.Field)
 
 	t.Logf("%#v", db)
 
 	t.Fail()
+}
+
+func TestIndex(t *testing.T) {
+	ctx := context.Background()
+
+	startData := `test id1 {"field":"value 1"}
+test id2 {"field":"value 2"}
+test id3 {"field":"value 3"}
+test id4 {"field":"value 4"}
+test id5 {"field":"value 4"}
+test id4 {"field":"value 4"}
+`
+
+	err := dumpData("test.data", startData)
+	require.NoError(t, err, "dump")
+
+	db, err := New("test.data")
+	require.NoError(t, err, "setup")
+
+	// index by value
+
+	err = db.Index(ctx, &testEntity{}, "idx1", func(x Entity) string {
+		return x.(*testEntity).Field
+	})
+	require.NoError(t, err, "index")
+
+	// query by value
+
+	var list []testEntity
+
+	err = db.Query(ctx, "idx1", "value 4", &list)
+	require.NoError(t, err, "query")
+
+	assert.Len(t, list, 2, "result list: %v", list)
+
+	// add a new entity, with same value
+
+	e100 := testEntity{
+		IDField: "id100",
+		Field:   "value 4",
+	}
+
+	err = db.Store(ctx, &e100)
+	require.NoError(t, err, "store")
+
+	// query by value again
+
+	err = db.Query(ctx, "idx1", "value 4", &list)
+	require.NoError(t, err, "query")
+
+	assert.Len(t, list, 3, "result list: %v", list)
 }
