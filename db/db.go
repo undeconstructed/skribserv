@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,21 +75,27 @@ type idList struct {
 type indexes map[ID]map[ID]map[ID]*idList
 
 type DB struct {
-	// entries is main data table
-	entries entries
+	// fileDB is the part that relates to the file and may need to be replaced
+	fileDB
+
+	// size in bytes of useful data (not metadata)
+	size int
 
 	// indexers is definitions of indexes
 	indexers indexers
 
 	// indexes is indexed data
 	indexes indexes
+}
+
+type fileDB struct {
+	// entries is main data table
+	entries entries
 
 	// file for primary data
 	file *os.File
 	// position in bytes of end of data file
 	position int
-	// size in bytes of useful data (not metadata)
-	size int
 	// wasted size in bytes because of duplicates (not metadata)
 	wasted int
 }
@@ -105,9 +112,9 @@ func New(path string) (*DB, error) {
 	wasted := 0
 
 	// for tracking the file as we read it
-	buffer := make([]byte, 512)
-	eof := false  // whether last read found EOF
-	position := 0 // absolute position in file
+	buffer := make([]byte, 4096) // same size as buffered reader default
+	eof := false                 // whether last read found EOF
+	position := 0                // absolute position in file
 
 	// initial read to fill the buffer
 	n, err := f.ReadAt(buffer, 0)
@@ -235,13 +242,15 @@ func New(path string) (*DB, error) {
 	}
 
 	return &DB{
-		file:     f,
-		entries:  entries,
+		fileDB: fileDB{
+			file:     f,
+			entries:  entries,
+			wasted:   wasted,
+			position: position,
+		},
+		size:     size,
 		indexers: indexers{},
 		indexes:  indexes{},
-		size:     size,
-		wasted:   wasted,
-		position: position,
 	}, nil
 }
 
@@ -484,6 +493,125 @@ func (db *DB) Query(ctx context.Context, index, value ID, es any) error {
 
 		rv.Set(reflect.Append(rv, eRv.Elem()))
 	}
+
+	return nil
+}
+
+func (db *DB) Compact(ctx context.Context) error {
+	// TODO lock
+
+	// this will be swapped into db
+	fileDB := fileDB{
+		entries: entries{},
+		wasted:  0,
+	}
+
+	// temp file is used while writing
+	newFile, err := os.CreateTemp(".", "db_temp")
+	if err != nil {
+		return err
+	}
+	defer newFile.Close()
+
+	out := bufio.NewWriter(newFile)
+
+	position := 0
+
+	for species, forSpecies := range db.entries {
+		mapForSpecies := map[ID]*entry{}
+
+		for id, entry0 := range forSpecies {
+			dataStart, dataLength := 0, 0
+
+			n, err := out.WriteString(species.String())
+			if err != nil {
+				return err
+			}
+			position += n
+
+			n, err = out.WriteRune(' ')
+			if err != nil {
+				return err
+			}
+			position += n
+
+			n, err = out.WriteString(id.String())
+			if err != nil {
+				return err
+			}
+			position += n
+
+			n, err = out.WriteRune(' ')
+			if err != nil {
+				return err
+			}
+			position += n
+
+			dataStart = position
+
+			data, err := db.readData(entry0)
+			if err != nil {
+				return err
+			}
+
+			n, err = out.Write(data)
+			if err != nil {
+				return err
+			}
+			position += n
+
+			dataLength = n
+
+			n, err = out.WriteRune('\n')
+			if err != nil {
+				return err
+			}
+			position += n
+
+			entry1 := &entry{
+				species: species,
+				id:      id,
+				start:   int64(dataStart),
+				length:  int64(dataLength),
+				indexed: entry0.indexed,
+			}
+
+			mapForSpecies[id] = entry1
+		}
+
+		fileDB.entries[species] = mapForSpecies
+	}
+
+	// try to get all data to OS
+	err = out.Flush()
+	if err != nil {
+		return err
+	}
+
+	// try to force OS to write everything
+	err = newFile.Sync()
+	if err != nil {
+		return err
+	}
+
+	// swap new file over the old one
+	err = os.Rename(newFile.Name(), db.file.Name())
+	if err != nil {
+		return err
+	}
+
+	// now reopen in append mode for normal operation
+	newFile, err = os.OpenFile(db.file.Name(), os.O_CREATE|os.O_RDWR|os.O_APPEND, 0700)
+	if err != nil {
+		return err
+	}
+
+	// finish preparing the swap
+	fileDB.file = newFile
+	fileDB.position = position
+
+	// switch happens here
+	db.fileDB = fileDB
 
 	return nil
 }

@@ -148,3 +148,56 @@ test id4 {"field":"value 4"}
 
 	assert.Len(t, list, 3, "result list: %v", list)
 }
+
+func TestCompact(t *testing.T) {
+	ctx := context.Background()
+
+	startData := `test id1 {"field":"value 1.1"}
+test id2 {"field":"value 2.1"}
+test id1 {"field":"value 1.2"}
+test id4 {"field":"value 4.1"}
+test id5 {"field":"value 5.1"}
+test id4 {"field":"value 4.2"}
+`
+
+	err := dumpData("test.data", startData)
+	require.NoError(t, err, "dump")
+
+	db, err := New("test.data")
+	require.NoError(t, err, "setup")
+
+	err = db.Compact(ctx)
+	require.NoError(t, err, "compact")
+
+	// load 4
+
+	e4 := &testEntity{
+		IDField: Mkid("id4"),
+	}
+
+	err = db.Load(ctx, e4)
+	require.NoError(t, err, "load 4")
+
+	assert.Equal(t, "value 4.2", e4.Field)
+
+	// store 2
+
+	e2 := &testEntity{
+		IDField: Mkid("id2"),
+		Field:   "value 2.2",
+	}
+
+	err = db.Store(ctx, e2)
+	require.NoError(t, err, "store 2")
+
+	// load 2
+
+	e2 = &testEntity{
+		IDField: Mkid("id2"),
+	}
+
+	err = db.Load(ctx, e2)
+	require.NoError(t, err, "load 2")
+
+	assert.Equal(t, "value 2.2", e2.Field)
+}
