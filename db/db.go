@@ -10,43 +10,12 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"sync"
 	"unicode/utf8"
-	"unique"
 )
 
 var ErrNotFound = errors.New("not found")
 var ErrCorrupt = errors.New("corrupt")
-
-type ID unique.Handle[string]
-
-func Mkid(in string) ID {
-	return ID(unique.Make(in))
-}
-
-func (i ID) String() string {
-	return unique.Handle[string](i).Value()
-}
-
-func (i *ID) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-
-	*i = ID(unique.Make(s))
-
-	return nil
-}
-
-func (i ID) MarshalJSON() ([]byte, error) {
-	return json.Marshal(i.String())
-}
-
-type Entity interface {
-	ID() ID
-	Type() ID
-	SetID(s ID)
-}
 
 type entry struct {
 	species, id   ID
@@ -86,6 +55,8 @@ type DB struct {
 
 	// indexes is indexed data
 	indexes indexes
+
+	sync.RWMutex
 }
 
 type fileDB struct {
@@ -98,6 +69,65 @@ type fileDB struct {
 	position int
 	// wasted size in bytes because of duplicates (not metadata)
 	wasted int
+
+	// writer is for writing at the end of the file
+	writer *bufio.Writer
+}
+
+// writeLine puts data into the file and updates position
+func (db *fileDB) writeLine(species, id ID, data []byte) (*entry, error) {
+	position := db.position
+
+	dataStart, dataLength := 0, 0
+
+	n, err := db.writer.WriteString(species.String())
+	if err != nil {
+		return nil, err
+	}
+	position += n
+
+	n, err = db.writer.WriteRune(' ')
+	if err != nil {
+		return nil, err
+	}
+	position += n
+
+	n, err = db.writer.WriteString(id.String())
+	if err != nil {
+		return nil, err
+	}
+	position += n
+
+	n, err = db.writer.WriteRune(' ')
+	if err != nil {
+		return nil, err
+	}
+	position += n
+
+	dataStart = position
+
+	n, err = db.writer.Write(data)
+	if err != nil {
+		return nil, err
+	}
+	position += n
+
+	dataLength = n
+
+	n, err = db.writer.WriteRune('\n')
+	if err != nil {
+		return nil, err
+	}
+	position += n
+
+	db.position = position
+
+	return &entry{
+		species: species,
+		id:      id,
+		start:   int64(dataStart),
+		length:  int64(dataLength),
+	}, nil
 }
 
 func New(path string) (*DB, error) {
@@ -247,6 +277,7 @@ func New(path string) (*DB, error) {
 			entries:  entries,
 			wasted:   wasted,
 			position: position,
+			writer:   bufio.NewWriter(f),
 		},
 		size:     size,
 		indexers: indexers{},
@@ -255,6 +286,9 @@ func New(path string) (*DB, error) {
 }
 
 func (db *DB) Index(ctx context.Context, e Entity, name ID, indexFn IndexerFunc) error {
+	db.Lock()
+	defer db.Unlock()
+
 	speciesH, indexH := e.Type(), name
 
 	// save the indexer for future changes
@@ -306,26 +340,15 @@ func (db *DB) Index(ctx context.Context, e Entity, name ID, indexFn IndexerFunc)
 }
 
 func (db *DB) storeRaw(species, idH ID, data []byte) (*entry, error) {
-	meta := []byte(species.String() + " " + idH.String() + " ")
-	metaLength := len(meta)
-
-	_, err := db.file.Write(meta)
+	newEntry, err := db.writeLine(species, idH, data)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = db.file.Write(data)
+	err = db.writer.Flush()
 	if err != nil {
 		return nil, err
 	}
-
-	_, err = db.file.Write([]byte("\n"))
-	if err != nil {
-		return nil, err
-	}
-
-	dataStart := db.position + metaLength
-	dataLength := len(data)
 
 	// TODO deduplicate code
 	forSpecies, ok := db.entries[species]
@@ -337,25 +360,23 @@ func (db *DB) storeRaw(species, idH ID, data []byte) (*entry, error) {
 	oldEntry, hasOld := forSpecies[idH]
 
 	if hasOld {
-		// old value found
-		db.wasted += dataLength
+		// old value found, so the old data is now wasted space
+		db.wasted += int(oldEntry.length)
 		db.size -= int(oldEntry.length)
 	}
 
-	forSpecies[idH] = &entry{
-		species: species,
-		id:      idH,
-		start:   int64(dataStart),
-		length:  int64(dataLength),
-	}
+	// the new data is useful size
+	db.size += int(newEntry.length)
 
-	// update position for next insert
-	db.position += metaLength + dataLength
+	forSpecies[idH] = newEntry
 
 	return oldEntry, nil
 }
 
 func (db *DB) Store(ctx context.Context, e Entity) error {
+	db.Lock()
+	defer db.Unlock()
+
 	speciesH, idH := e.Type(), e.ID()
 
 	data, err := json.Marshal(e)
@@ -400,9 +421,9 @@ func (db *DB) Store(ctx context.Context, e Entity) error {
 func (db *DB) readData(entry *entry) ([]byte, error) {
 	buffer := make([]byte, entry.length)
 
-	n, _ := db.file.ReadAt(buffer, entry.start)
+	n, err := db.file.ReadAt(buffer, entry.start)
 	if n != int(entry.length) {
-		return nil, ErrCorrupt
+		return nil, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
 
 	return buffer, nil
@@ -434,6 +455,9 @@ func (db *DB) parse(idH ID, data []byte, e Entity) error {
 }
 
 func (db *DB) Load(ctx context.Context, e Entity) error {
+	db.RLock()
+	defer db.RUnlock()
+
 	speciesH, idH := e.Type(), e.ID()
 
 	_, data, err := db.loadRaw(speciesH, idH)
@@ -444,6 +468,13 @@ func (db *DB) Load(ctx context.Context, e Entity) error {
 	return db.parse(idH, data, e)
 }
 
+func (db *DB) Delete(ctx context.Context, e Entity) error {
+	db.Lock()
+	defer db.Unlock()
+
+	return nil
+}
+
 func Query[E Entity](ctx context.Context, db *DB, index, value ID, es []E) error {
 	return db.Query(ctx, index, value, es)
 }
@@ -451,6 +482,9 @@ func Query[E Entity](ctx context.Context, db *DB, index, value ID, es []E) error
 // Query
 // es must be *[]E where E is an entity type
 func (db *DB) Query(ctx context.Context, index, value ID, es any) error {
+	db.RLock()
+	defer db.RUnlock()
+
 	rv := reflect.ValueOf(es) // *[]x
 	rt := rv.Type()
 
@@ -498,13 +532,8 @@ func (db *DB) Query(ctx context.Context, index, value ID, es any) error {
 }
 
 func (db *DB) Compact(ctx context.Context) error {
-	// TODO lock
-
-	// this will be swapped into db
-	fileDB := fileDB{
-		entries: entries{},
-		wasted:  0,
-	}
+	db.Lock()
+	defer db.Unlock()
 
 	// temp file is used while writing
 	newFile, err := os.CreateTemp(".", "db_temp")
@@ -513,68 +542,31 @@ func (db *DB) Compact(ctx context.Context) error {
 	}
 	defer newFile.Close()
 
-	out := bufio.NewWriter(newFile)
-
-	position := 0
+	// new state that must be created during the compaction
+	fileDB := fileDB{
+		entries:  entries{},
+		file:     newFile,
+		position: 0,
+		wasted:   0,
+		writer:   bufio.NewWriter(newFile),
+	}
 
 	for species, forSpecies := range db.entries {
 		mapForSpecies := map[ID]*entry{}
 
 		for id, entry0 := range forSpecies {
-			dataStart, dataLength := 0, 0
-
-			n, err := out.WriteString(species.String())
-			if err != nil {
-				return err
-			}
-			position += n
-
-			n, err = out.WriteRune(' ')
-			if err != nil {
-				return err
-			}
-			position += n
-
-			n, err = out.WriteString(id.String())
-			if err != nil {
-				return err
-			}
-			position += n
-
-			n, err = out.WriteRune(' ')
-			if err != nil {
-				return err
-			}
-			position += n
-
-			dataStart = position
-
 			data, err := db.readData(entry0)
 			if err != nil {
 				return err
 			}
 
-			n, err = out.Write(data)
+			entry1, err := fileDB.writeLine(species, id, data)
 			if err != nil {
 				return err
 			}
-			position += n
 
-			dataLength = n
-
-			n, err = out.WriteRune('\n')
-			if err != nil {
-				return err
-			}
-			position += n
-
-			entry1 := &entry{
-				species: species,
-				id:      id,
-				start:   int64(dataStart),
-				length:  int64(dataLength),
-				indexed: entry0.indexed,
-			}
+			// data is same, so index doesn't need to change
+			entry1.indexed = entry0.indexed
 
 			mapForSpecies[id] = entry1
 		}
@@ -583,7 +575,7 @@ func (db *DB) Compact(ctx context.Context) error {
 	}
 
 	// try to get all data to OS
-	err = out.Flush()
+	err = fileDB.writer.Flush()
 	if err != nil {
 		return err
 	}
@@ -606,9 +598,8 @@ func (db *DB) Compact(ctx context.Context) error {
 		return err
 	}
 
-	// finish preparing the swap
 	fileDB.file = newFile
-	fileDB.position = position
+	fileDB.writer = bufio.NewWriter(newFile)
 
 	// switch happens here
 	db.fileDB = fileDB

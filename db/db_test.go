@@ -36,9 +36,9 @@ func TestNew(t *testing.T) {
 	startData := `test id1 {"field":"value 1 ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................."}
 test id2 {"field":"value 2"}
 test id3 {"field":"value 3"}
-test id4 {"field":"value 4"}
-test id5 {"field":"value 4"}
-test id4 {"field":"value 4"}
+test id4 {"field":"value 4.1"}
+test id5 {"field":"value 5"}
+test id4 {"field":"value 4.2"}
 `
 
 	err := dumpData("test.data", startData)
@@ -78,7 +78,7 @@ test id4 {"field":"value 4"}
 
 	e4 := &testEntity{
 		IDField: Mkid("id4"),
-		Field:   "value 4",
+		Field:   "value 4.3",
 	}
 
 	err = db.Store(ctx, e4)
@@ -93,7 +93,7 @@ test id4 {"field":"value 4"}
 	err = db.Load(ctx, e4)
 	require.NoError(t, err, "load 4")
 
-	assert.Equal(t, "value 4", e4.Field)
+	assert.Equal(t, "value 4.3", e4.Field)
 
 	t.Logf("%#v", db)
 }
