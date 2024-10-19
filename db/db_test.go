@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -33,69 +34,129 @@ func dumpData(filename string, data string) error {
 func TestNew(t *testing.T) {
 	ctx := context.Background()
 
-	startData := `test id1 {"field":"value 1 ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................."}
+	goodData1 := `test id1 {"field":"value 1"}
 test id2 {"field":"value 2"}
 test id3 {"field":"value 3"}
 test id4 {"field":"value 4.1"}
 test id5 {"field":"value 5"}
 test id4 {"field":"value 4.2"}
 `
+	goodData2 := `test id1 {"field":"value æŝðđŝ¶ŧĥŝ¶ĥĝ"}
+test id2 {"field":"value 2"}
+ŝ¶ŧĥ e¶æe€„ {"field":"value e¶ĝŝe€³ĝ"}
+`
+	badData1 := `test id1 {"field":"value 1"}
+test id
+test id3 asdasd
+`
+	badData2 := `test id1 {"field":"value 1"}
 
-	err := dumpData("test.data", startData)
-	require.NoError(t, err, "dump")
+	test id2 {}
+`
+	badData3 := `test id1 {"field":"value 1"}
+	test id2 {}`
+	noData := ``
 
-	db, err := New("test.data")
-	require.NoError(t, err, "setup")
-
-	t.Logf("%#v", db)
-
-	e2 := &testEntity{
-		IDField: Mkid("id2"),
+	versions := []struct {
+		n string
+		f func(string) (*DB, error)
+	}{
+		{"own", NewWithOwnCode},
+		{"std", NewWithStdLib},
 	}
 
-	// load raw 1
-
-	_, byt1, err := db.loadRaw(Mkid("test"), Mkid("id1"))
-	require.NoError(t, err, "load raw 1")
-
-	t.Log("bytes", string(byt1))
-
-	// load raw 2
-
-	_, byt2, err := db.loadRaw(Mkid("test"), Mkid("id2"))
-	require.NoError(t, err, "load raw 2")
-
-	t.Log("bytes", string(byt2))
-
-	// load 2
-
-	err = db.Load(ctx, e2)
-	require.NoError(t, err, "load 2")
-
-	assert.Equal(t, "value 2", e2.Field)
-
-	// store 4
-
-	e4 := &testEntity{
-		IDField: Mkid("id4"),
-		Field:   "value 4.3",
+	type test struct {
+		name     string
+		data     string
+		err      string
+		doReads  bool
+		doWrites bool
 	}
 
-	err = db.Store(ctx, e4)
-	require.NoError(t, err, "store 4")
-
-	// load 4
-
-	e4 = &testEntity{
-		IDField: Mkid("id4"),
+	tests := []test{
+		{name: "good1", data: goodData1, doReads: true, doWrites: true},
+		{name: "good2", data: goodData2, doReads: true, doWrites: true},
+		{name: "blank", data: noData, doWrites: true},
+		{name: "bad1", data: badData1, err: "line @ 2"},
+		{name: "bad2", data: badData2, err: "line @ 2"},
+		{name: "bad3", data: badData3, err: "line @ 2"},
 	}
 
-	err = db.Load(ctx, e4)
-	require.NoError(t, err, "load 4")
+	makeTest := func(f func(string) (*DB, error), test test) func(*testing.T) {
+		return func(t *testing.T) {
+			err := dumpData("test.data", test.data)
+			require.NoError(t, err, "dump")
 
-	assert.Equal(t, "value 4.3", e4.Field)
+			db, err := f("test.data")
 
-	t.Logf("%#v", db)
+			if test.err != "" {
+				require.ErrorContains(t, err, test.err, "setup")
+				return
+			} else {
+				require.NoError(t, err, "setup")
+			}
+
+			t.Logf("%#v", db)
+
+			if test.doReads {
+				// load raw 1
+
+				_, byt1, err := db.loadRaw(Mkid("test"), Mkid("id1"))
+				require.NoError(t, err, "load raw 1")
+
+				t.Log("bytes", string(byt1))
+
+				// load raw 2
+
+				_, byt2, err := db.loadRaw(Mkid("test"), Mkid("id2"))
+				require.NoError(t, err, "load raw 2")
+
+				t.Log("bytes", string(byt2))
+
+				// load 2
+
+				e2 := &testEntity{
+					IDField: Mkid("id2"),
+				}
+
+				err = db.Load(ctx, e2)
+				require.NoError(t, err, "load 2")
+
+				assert.Equal(t, "value 2", e2.Field)
+			}
+
+			if test.doWrites {
+				// store 4
+
+				e4 := &testEntity{
+					IDField: Mkid("id4"),
+					Field:   "value 4.3",
+				}
+
+				err = db.Store(ctx, e4)
+				require.NoError(t, err, "store 4")
+
+				// load 4
+
+				e4 = &testEntity{
+					IDField: Mkid("id4"),
+				}
+
+				err = db.Load(ctx, e4)
+				require.NoError(t, err, "load 4")
+
+				assert.Equal(t, "value 4.3", e4.Field)
+			}
+
+			t.Logf("%#v", db)
+		}
+	}
+
+	for _, test := range tests {
+		for _, version := range versions {
+			t.Run(fmt.Sprintf("%v/%s", version.n, test.name), makeTest(version.f, test))
+		}
+	}
 }
 
 func TestIndex(t *testing.T) {
@@ -112,7 +173,7 @@ test id4 {"field":"value 4"}
 	err := dumpData("test.data", startData)
 	require.NoError(t, err, "dump")
 
-	db, err := New("test.data")
+	db, err := NewWithOwnCode("test.data")
 	require.NoError(t, err, "setup")
 
 	// index by value
@@ -163,7 +224,7 @@ test id4 {"field":"value 4.2"}
 	err := dumpData("test.data", startData)
 	require.NoError(t, err, "dump")
 
-	db, err := New("test.data")
+	db, err := NewWithOwnCode("test.data")
 	require.NoError(t, err, "setup")
 
 	err = db.Compact(ctx)

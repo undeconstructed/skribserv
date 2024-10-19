@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"unicode/utf8"
 )
@@ -130,7 +131,120 @@ func (db *fileDB) writeLine(species, id ID, data []byte) (*entry, error) {
 	}, nil
 }
 
-func New(path string) (*DB, error) {
+// NewWithStdLib creates a DB from a file, using stdlib's buffer and scanner.
+// Hopefully there is not a problem with runes which overlap the buffer.
+func NewWithStdLib(path string) (*DB, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0700)
+	if err != nil {
+		return nil, err
+	}
+
+	inb := bufio.NewReader(f)
+
+	// final results
+	entries := entries{}
+	size := 0     // useful data size
+	wasted := 0   // useless data size
+	position := 0 // absolute position in file
+
+	// for each line, we need to find these values
+	species, id := "", ""
+	builder := strings.Builder{}
+	dataStart, dataLength := 0, 0
+
+	// for error reporting
+	inLine, line := false, 1
+
+	for {
+		ch, runeLen, err := inb.ReadRune()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			} else {
+				return nil, err
+			}
+		}
+
+		inLine = true
+
+		if ch == '\n' {
+			// now we are at the end of the line
+			if species == "" || id == "" {
+				return nil, fmt.Errorf("corrupt: invalid line @ %d", line)
+			}
+
+			speciesH, idH := Mkid(species), Mkid(id)
+
+			forSpecies, ok := entries[speciesH]
+			if !ok {
+				forSpecies = map[ID]*entry{}
+				entries[speciesH] = forSpecies
+			}
+
+			if old, ok := forSpecies[idH]; ok {
+				// old value found
+				wasted += int(old.length)
+				size -= int(old.length)
+			}
+
+			forSpecies[idH] = &entry{
+				species: speciesH,
+				id:      idH,
+				start:   int64(dataStart),
+				length:  int64(dataLength),
+			}
+
+			size += dataLength
+
+			// reset the variables
+			species, id, dataStart, dataLength = "", "", 0, 0
+
+			inLine = false
+			line++
+		} else if species == "" {
+			if ch == ' ' {
+				species = builder.String()
+				builder.Reset()
+			} else {
+				builder.WriteRune(ch)
+			}
+		} else if id == "" {
+			if ch == ' ' {
+				id = builder.String()
+				builder.Reset()
+			} else {
+				builder.WriteRune(ch)
+			}
+
+			dataStart = position + runeLen
+		} else if dataStart != 0 {
+			dataLength += runeLen
+		}
+
+		position += runeLen
+	}
+
+	if inLine {
+		return nil, fmt.Errorf("corrupt: invalid line @ %d", line)
+	}
+
+	return &DB{
+		fileDB: fileDB{
+			file:     f,
+			entries:  entries,
+			wasted:   wasted,
+			position: position,
+			writer:   bufio.NewWriter(f),
+		},
+		size:     size,
+		indexers: indexers{},
+		indexes:  indexes{},
+	}, nil
+}
+
+// NewWithOwnCode creates a DB from a file, using custom buffering and scanning code.
+// There might be a problem with runes which overlap the buffer.
+func NewWithOwnCode(path string) (*DB, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0700)
 	if err != nil {
 		return nil, err
@@ -138,8 +252,8 @@ func New(path string) (*DB, error) {
 
 	// final results
 	entries := entries{}
-	size := 0
-	wasted := 0
+	size := 0   // useful data size
+	wasted := 0 // useless data size
 
 	// for tracking the file as we read it
 	buffer := make([]byte, 4096) // same size as buffered reader default
@@ -162,6 +276,9 @@ func New(path string) (*DB, error) {
 	// for each line, we need to find these values
 	species, id := "", ""
 	lineStart, idStart, dataStart, dataLength, dataEnd := -1, 0, 0, 0, 0
+
+	// for error reporting
+	line := 1
 
 	// do this loop while there is any data remaining, either from last read or left in the buffer
 	for len(readable) > 0 {
@@ -192,7 +309,7 @@ func New(path string) (*DB, error) {
 			} else if ch == '\n' {
 				// now we are at the end of the line
 				if species == "" || id == "" {
-					return nil, fmt.Errorf("corrupt 1")
+					return nil, fmt.Errorf("corrupt: invalid line @ %d", line)
 				}
 
 				dataEnd = position
@@ -212,7 +329,7 @@ func New(path string) (*DB, error) {
 			// have not finished the line
 			if eof {
 				// but there is no more data
-				return nil, fmt.Errorf("corrupt 2")
+				return nil, fmt.Errorf("corrupt: invalid line @ %d", line)
 			}
 
 			// otherwise mark the data as consumed and continue to the next buffer
@@ -229,7 +346,7 @@ func New(path string) (*DB, error) {
 
 			if old, ok := forSpecies[idH]; ok {
 				// old value found
-				wasted += dataLength
+				wasted += int(old.length)
 				size -= int(old.length)
 			}
 
@@ -252,6 +369,8 @@ func New(path string) (*DB, error) {
 			// reset the variables
 			species, id = "", ""
 			lineStart, idStart, dataStart, dataLength, dataEnd = -1, 0, 0, 0, 0
+
+			line++
 		}
 
 		if !eof {

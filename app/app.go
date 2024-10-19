@@ -46,7 +46,7 @@ type App struct {
 }
 
 func New() (*App, error) {
-	store, err := db.New("db.txt")
+	store, err := db.NewWithOwnCode("db.txt")
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
 	}
