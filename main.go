@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/undeconstructed/skribserv/app"
 	"github.com/undeconstructed/skribserv/lib"
@@ -34,11 +38,24 @@ func makeWebFS(devMode bool) (fs.FS, error) {
 }
 
 func main() {
+	logLevel := slog.LevelInfo
+
+	if l := os.Getenv("LOG_LEVEL"); l != "" {
+		// maybe there is another log level parser, but I can't only find the json one, which needs all this extra rubbish
+		err := logLevel.UnmarshalJSON([]byte(strconv.Quote(l)))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bad log level: %v\n", err)
+			os.Exit(2)
+		}
+	}
+
+	slog.SetDefault(lib.MakeLogger(logLevel, true))
+
+	log := lib.DefaultLog(context.Background())
+
 	devMode := flag.Bool("dev-mode", false, "whether run from source")
 
 	flag.Parse()
-
-	log := lib.MakeLogger(*devMode)
 
 	log.Info("starting", "dev-mode", *devMode)
 
@@ -56,7 +73,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /", lib.Middleware(log, true, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /", lib.Middleware(true, func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
@@ -67,7 +84,7 @@ func main() {
 	}
 
 	theApp.Install(func(pattern string, handler http.HandlerFunc) {
-		mux.HandleFunc(pattern, lib.Middleware(log, !*devMode, handler))
+		mux.HandleFunc(pattern, lib.Middleware(!*devMode, handler))
 	})
 
 	srv := http.Server{

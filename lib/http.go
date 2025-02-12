@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -70,15 +69,12 @@ func (w *mwResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func Middleware(log *slog.Logger, recover bool, next http.HandlerFunc) http.HandlerFunc {
+func Middleware(recover bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		reqID := MakeRandomID("req", 8)
 
-		log := log.With("req_id", reqID)
-
-		ctx := PutLogger(r.Context(), log)
-
-		r = r.WithContext(ctx)
+		ctx1 := WithLogValue(r.Context(), "req_id", reqID)
+		r = r.WithContext(ctx1)
 
 		w1 := &mwResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -101,7 +97,7 @@ func Middleware(log *slog.Logger, recover bool, next http.HandlerFunc) http.Hand
 
 		status := w1.statusCode
 
-		log.Info("http", "remote", r.RemoteAddr, "method", r.Method, "url", r.URL.String(), "status", status, "time_ms", t1.Sub(t0).Milliseconds(), "err", err)
+		DefaultLog(ctx1).Info("http", "remote", r.RemoteAddr, "method", r.Method, "url", r.URL.String(), "status", status, "time_ms", t1.Sub(t0).Milliseconds(), "err", err)
 	}
 }
 

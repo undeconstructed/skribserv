@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/undeconstructed/skribserv/lib"
@@ -28,8 +27,8 @@ type EntityResponse struct {
 	Entity  any    `json:"entity"`
 }
 
-func log(ctx context.Context) *slog.Logger {
-	return lib.GetLogger(ctx)
+func log(ctx context.Context) *lib.Logger {
+	return lib.DefaultLog(ctx)
 }
 
 type App struct {
@@ -186,7 +185,7 @@ func (a *App) GetUsers(ctx context.Context, r *http.Request) any {
 }
 
 func (a *App) GetUser(ctx context.Context, r *http.Request) any {
-	log := lib.GetLogger(r.Context())
+	log := lib.DefaultLog(r.Context())
 	log.Info("get user happening here")
 
 	id := r.PathValue("id")
@@ -259,7 +258,7 @@ func (a *App) GetTexts(ctx context.Context, r *http.Request) any {
 }
 
 func (a *App) GetText(ctx context.Context, r *http.Request) any {
-	log := lib.GetLogger(ctx)
+	log := lib.DefaultLog(ctx)
 	log.Info("get api b happening here")
 
 	id := r.PathValue("id")
