@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/undeconstructed/skribserv/lib"
@@ -25,6 +26,10 @@ type Text struct {
 type EntityResponse struct {
 	Message string `json:"message"`
 	Entity  any    `json:"entity"`
+}
+
+func log(ctx context.Context) *slog.Logger {
+	return lib.GetLogger(ctx)
 }
 
 type App struct {
@@ -123,7 +128,7 @@ func (a *App) Install(mux lib.Router) {
 	mux("GET /api/users", a.AuthMiddleware(lib.APIHandler(a.GetUsers)))
 	mux("GET /api/users/{id}", a.AuthMiddleware(lib.APIHandler(a.GetUser)))
 	mux("POST /api/texts", a.AuthMiddleware(lib.APIHandler(a.PostText)))
-	mux("GET /api/texts", a.AuthMiddleware(lib.APIHandler(a.GetTexts)))
+	mux("GET /api/texts/", a.AuthMiddleware(lib.APIHandler(a.GetTexts)))
 	mux("GET /api/texts/{id}", a.AuthMiddleware(lib.APIHandler(a.GetText)))
 }
 
@@ -133,6 +138,8 @@ const ctxKeyUser ctxKey = 1
 
 func (a *App) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		uID, pass, ok := r.BasicAuth()
 		if !ok {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
@@ -153,8 +160,7 @@ func (a *App) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		ctx1 := context.WithValue(r.Context(), ctxKeyUser, user)
 		r1 := r.WithContext(ctx1)
 
-		log := lib.GetLogger(r.Context())
-		log.Debug("auth", "user", user.ID)
+		log(ctx).Debug("auth", "user", user.ID)
 
 		next(w, r1)
 	}
@@ -181,7 +187,7 @@ func (a *App) GetUsers(ctx context.Context, r *http.Request) any {
 
 func (a *App) GetUser(ctx context.Context, r *http.Request) any {
 	log := lib.GetLogger(r.Context())
-	log.Info("get api a happening here")
+	log.Info("get user happening here")
 
 	id := r.PathValue("id")
 
