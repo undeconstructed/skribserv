@@ -7,273 +7,262 @@ import (
 	"fmt"
 	"net/http"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/go-rel/rel"
+	"github.com/go-rel/rel/where"
 	"github.com/undeconstructed/skribserv/lib"
 )
 
-type User struct {
-	ID   string
-	Pass string
-	Name string
-}
-
-type Text struct {
-	ID     string
-	UserID string
-	Text   string
-}
-
-type EntityResponse struct {
-	Message string `json:"message"`
-	Entity  any    `json:"entity"`
+type EntoRespondo struct {
+	Mesaĝo string `json:"mesaĝo"`
+	Ento   any    `json:"ento"`
 }
 
 func log(ctx context.Context) *lib.Logger {
 	return lib.DefaultLog(ctx)
 }
 
-type App struct {
-	users map[string]*User
-	texts map[string]*Text
+type Apo struct {
+	db rel.Repository
 }
 
-func New() (*App, error) {
-	users := map[string]*User{}
-	texts := map[string]*Text{}
-
-	app := &App{
-		users: users,
-		texts: texts,
+func Nova(db rel.Repository) (*Apo, error) {
+	app := &Apo{
+		db: db,
 	}
-
-	app.putUser("phil", "pass1", "Phil")
-	app.putText("", "phil", "this is the text")
 
 	return app, nil
 }
 
-func (a *App) putUser(id, pass, name string) (*User, error) {
+func (a *Apo) metiUzanton(ctx context.Context, id, pasvorto, nomo string) (*Uzanto, error) {
 	if id == "" {
-		id = lib.MakeRandomID("u", 5)
+		id = lib.FariHazardanID("u", 5)
 	}
 
-	user0 := a.users[id]
-	if user0 != nil {
-		return nil, lib.ErrHTTPConflict
+	uzanto1 := &Uzanto{
+		ID:       id,
+		Nomo:     nomo,
+		Pasvorto: pasvorto,
 	}
 
-	user1 := &User{
-		ID:   id,
-		Pass: pass,
-		Name: name,
+	if err := a.db.Insert(ctx, uzanto1); err != nil {
+		return nil, err
 	}
 
-	a.users[id] = user1
-
-	return user1, nil
+	return uzanto1, nil
 }
 
-func (a *App) getUser(id string) (*User, error) {
-	user := a.users[id]
-	if user == nil {
-		return nil, lib.ErrHTTPNotFound
-	}
+func (a *Apo) preniUzanton(ctx context.Context, id string) (*Uzanto, error) {
+	uzanto := &Uzanto{}
 
-	return user, nil
-}
-
-func (a *App) putText(id, userID, text string) (*Text, error) {
-	if id == "" {
-		id = lib.MakeRandomID("t", 5)
-	}
-
-	text0 := a.texts[id]
-	if text0 != nil {
-		return nil, lib.ErrHTTPConflict
-	}
-
-	text1 := &Text{
-		ID:     id,
-		UserID: userID,
-		Text:   text,
-	}
-
-	a.texts[id] = text1
-
-	return text1, nil
-}
-
-func (a *App) getText(id string) (*Text, error) {
-	text := a.texts[id]
-	if text == nil {
-		return nil, lib.ErrHTTPNotFound
-	}
-
-	return text, nil
-}
-
-func (a *App) getTextsByUserID(userID string) ([]*Text, error) {
-	var out []*Text
-
-	for _, text := range a.texts {
-		if text.UserID == userID {
-			out = append(out, text)
+	err := a.db.Find(ctx, uzanto, where.Eq("id", id))
+	if err != nil {
+		if errors.Is(err, rel.ErrNotFound) {
+			return nil, err
 		}
+
+		return nil, fmt.Errorf("db (legi): %w", err)
+	}
+
+	return uzanto, nil
+}
+
+func (a *Apo) metiTekston(ctx context.Context, id, uzantoID, teksto string) (*Teksto, error) {
+	if id == "" {
+		id = lib.FariHazardanID("t", 5)
+	}
+
+	teskto1 := &Teksto{
+		ID:       id,
+		UzantoID: uzantoID,
+		Teksto:   teksto,
+	}
+
+	if err := a.db.Insert(ctx, teskto1); err != nil {
+		return nil, err
+	}
+
+	return teskto1, nil
+}
+
+func (a *Apo) preniTekston(ctx context.Context, id string) (*Teksto, error) {
+	teksto := &Teksto{}
+
+	err := a.db.Find(ctx, teksto, where.Eq("id", id))
+	if err != nil {
+		if errors.Is(err, rel.ErrNotFound) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("db (legi): %w", err)
+	}
+
+	return teksto, nil
+}
+
+func (a *Apo) preniTekstojnLaŭUzantoID(ctx context.Context, uzantoID string) ([]*Teksto, error) {
+	var out []*Teksto
+
+	_, err := a.db.FindAndCountAll(ctx, &out, where.Eq("uzanto_id", uzantoID))
+	if err != nil {
+		return nil, fmt.Errorf("db (legi): %w", err)
 	}
 
 	return out, nil
 }
 
-func (a *App) Install(mux lib.Router) {
-	mux("GET /api/users", a.AuthMiddleware(lib.APIHandler(a.GetUsers)))
-	mux("GET /api/users/{id}", a.AuthMiddleware(lib.APIHandler(a.GetUser)))
-	mux("POST /api/texts", a.AuthMiddleware(lib.APIHandler(a.PostText)))
-	mux("GET /api/texts/", a.AuthMiddleware(lib.APIHandler(a.GetTexts)))
-	mux("GET /api/texts/{id}", a.AuthMiddleware(lib.APIHandler(a.GetText)))
+func (a *Apo) Instaliĝi(mux lib.Router) {
+	mux("GET /api/uzantoj", a.IdentigaMezvaro(lib.APIHandler(a.PreniUzantojn)))
+	mux("GET /api/uzantoj/{id}", a.IdentigaMezvaro(lib.APIHandler(a.PreniUzanton)))
+	mux("POST /api/tekstoj", a.IdentigaMezvaro(lib.APIHandler(a.SendiTekston)))
+	mux("GET /api/tekstoj/", a.IdentigaMezvaro(lib.APIHandler(a.PreniTekstojn)))
+	mux("GET /api/tekstoj/{id}", a.IdentigaMezvaro(lib.APIHandler(a.PreniTekston)))
 }
 
 type ctxKey int
 
-const ctxKeyUser ctxKey = 1
+const ctxKeyUzanto ctxKey = 1
 
-func (a *App) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+func (a *Apo) IdentigaMezvaro(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		uID, pass, ok := r.BasicAuth()
+		uID, pasvorto, ok := r.BasicAuth()
 		if !ok {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
 			return
 		}
 
-		user, ok := a.users[uID]
-		if !ok {
+		uzanto, err := a.preniUzanton(ctx, uID)
+		if err != nil {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
 			return
 		}
 
-		if user.Pass != pass {
+		if uzanto.Pasvorto != pasvorto {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
 			return
 		}
 
-		ctx1 := context.WithValue(r.Context(), ctxKeyUser, user)
+		ctx1 := context.WithValue(r.Context(), ctxKeyUzanto, uzanto)
 		r1 := r.WithContext(ctx1)
 
-		log(ctx).Debug("auth", "user", user.ID)
+		log(ctx).Debug("auth", "user", uzanto.ID)
 
 		next(w, r1)
 	}
 }
 
-func (a *App) getRequestUser(ctx context.Context) *User {
-	return ctx.Value(ctxKeyUser).(*User)
+func (a *Apo) preniUzantonDePeto(ctx context.Context) *Uzanto {
+	return ctx.Value(ctxKeyUzanto).(*Uzanto)
 }
 
-type UserJSON struct {
+type UzantoJSON struct {
 	ID   string `json:"id"`
-	Name string `json:"name"`
+	Nomo string `json:"nomo"`
 }
 
-type TextJSON struct {
-	ID     string `json:"id"`
-	UserID string `json:"userID"`
-	Text   string `json:"text"`
+type TekstoJSON struct {
+	ID       string `json:"id"`
+	UzantoID string `json:"uzantoID"`
+	Teksto   string `json:"teksto"`
 }
 
-func (a *App) GetUsers(ctx context.Context, r *http.Request) any {
+func (a *Apo) PreniUzantojn(ctx context.Context, r *http.Request) any {
 	return errors.New("not implemented")
 }
 
-func (a *App) GetUser(ctx context.Context, r *http.Request) any {
+func (a *Apo) PreniUzanton(ctx context.Context, r *http.Request) any {
 	log := lib.DefaultLog(r.Context())
 	log.Info("get user happening here")
 
 	id := r.PathValue("id")
 
-	user, err := a.getUser(id)
+	user, err := a.preniUzanton(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	return EntityResponse{
-		Message: "get " + id,
-		Entity: UserJSON{
+	return EntoRespondo{
+		Mesaĝo: "get " + id,
+		Ento: UzantoJSON{
 			ID:   user.ID,
-			Name: user.Name,
+			Nomo: user.Nomo,
 		},
 	}
 }
 
-func (a *App) PostText(ctx context.Context, r *http.Request) any {
+func (a *Apo) SendiTekston(ctx context.Context, r *http.Request) any {
 	dec := json.NewDecoder(r.Body)
 
-	text1 := &TextJSON{}
+	text1 := &TekstoJSON{}
 	err := dec.Decode(text1)
 	if err != nil {
 		return err
 	}
 
-	user := a.getRequestUser(ctx)
+	user := a.preniUzantonDePeto(ctx)
 
-	if text1.UserID != "" && text1.UserID != user.ID {
+	if text1.UzantoID != "" && text1.UzantoID != user.ID {
 		return lib.ErrHTTPForbidden
 	}
 
-	if text1.Text == "" {
+	if text1.Teksto == "" {
 		return fmt.Errorf("%w: missing text", lib.ErrHTTPBadRequest)
 	}
 
-	text1.UserID = user.ID
+	text1.UzantoID = user.ID
 
-	text2, err := a.putText("", text1.UserID, text1.Text)
+	text2, err := a.metiTekston(ctx, "", text1.UzantoID, text1.Teksto)
 	if err != nil {
 		return err
 	}
 
-	return EntityResponse{
-		Message: "post",
-		Entity: TextJSON{
-			ID:     text2.ID,
-			UserID: text2.UserID,
-			Text:   text2.Text,
+	return EntoRespondo{
+		Mesaĝo: "post",
+		Ento: TekstoJSON{
+			ID:       text2.ID,
+			UzantoID: text2.UzantoID,
+			Teksto:   text2.Teksto,
 		},
 	}
 }
 
-func (a *App) GetTexts(ctx context.Context, r *http.Request) any {
+func (a *Apo) PreniTekstojn(ctx context.Context, r *http.Request) any {
 	userID := r.URL.Query().Get("userID")
 	if userID == "" {
 		return errors.New("only querying by userID is supported")
 	}
 
-	texts, err := a.getTextsByUserID(userID)
+	texts, err := a.preniTekstojnLaŭUzantoID(ctx, userID)
 	if err != nil {
 		return err
 	}
 
-	return EntityResponse{
-		Message: "get texts by " + userID,
-		Entity:  texts,
+	return EntoRespondo{
+		Mesaĝo: "get texts by " + userID,
+		Ento:   texts,
 	}
 }
 
-func (a *App) GetText(ctx context.Context, r *http.Request) any {
+func (a *Apo) PreniTekston(ctx context.Context, r *http.Request) any {
 	log := lib.DefaultLog(ctx)
 	log.Info("get api b happening here")
 
 	id := r.PathValue("id")
 
-	text, err := a.getText(id)
+	text, err := a.preniTekston(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	return EntityResponse{
-		Message: "get " + id,
-		Entity: TextJSON{
-			ID:     text.ID,
-			UserID: text.UserID,
-			Text:   text.Text,
+	return EntoRespondo{
+		Mesaĝo: "get " + id,
+		Ento: TekstoJSON{
+			ID:       text.ID,
+			UzantoID: text.UzantoID,
+			Teksto:   text.Teksto,
 		},
 	}
 }

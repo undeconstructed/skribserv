@@ -7,7 +7,7 @@ import (
 )
 
 func TestMakeRandomID(t *testing.T) {
-	r := MakeRandomID("abc", 3)
+	r := FariHazardanID("abc", 3)
 
 	assert.Len(t, r, 7)
 }

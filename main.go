@@ -13,7 +13,11 @@ import (
 	"os"
 	"strconv"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/undeconstructed/skribserv/app"
+	"github.com/undeconstructed/skribserv/config"
+	"github.com/undeconstructed/skribserv/db"
 	"github.com/undeconstructed/skribserv/lib"
 )
 
@@ -57,7 +61,23 @@ func main() {
 
 	flag.Parse()
 
-	log.Info("starting", "dev-mode", *devMode)
+	config, path, err := config.ReadConfig("skribsrv.yaml")
+	if err != nil {
+		log.Error("read config", "err", err)
+		os.Exit(1)
+	}
+
+	slog.Info("config", "path", path, "dev-mode", *devMode, "bind", config.ListenAddr)
+
+	// db
+
+	db, err := db.Munti(config.DBDSN)
+	if err != nil {
+		log.Error("connect db", "err", err)
+		os.Exit(1)
+	}
+
+	// base server
 
 	files, err := makeWebFS(*devMode)
 	if err != nil {
@@ -65,7 +85,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	lr, err := net.Listen("tcp", ":8080")
+	lr, err := net.Listen("tcp", config.ListenAddr)
 	if err != nil {
 		log.Error("bind port", "err", err)
 		os.Exit(1)
@@ -77,15 +97,19 @@ func main() {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
-	theApp, err := app.New()
+	// app
+
+	laApo, err := app.Nova(db)
 	if err != nil {
 		log.Error("make api", "err", err)
 		os.Exit(1)
 	}
 
-	theApp.Install(func(pattern string, handler http.HandlerFunc) {
+	laApo.Instaliĝi(func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, lib.Middleware(!*devMode, handler))
 	})
+
+	// app serves
 
 	srv := http.Server{
 		Handler: mux,
