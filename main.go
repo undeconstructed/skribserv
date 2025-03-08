@@ -15,8 +15,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/undeconstructed/skribserv/app"
-	"github.com/undeconstructed/skribserv/config"
+	"github.com/undeconstructed/skribserv/agordoj"
+	"github.com/undeconstructed/skribserv/apo"
 	"github.com/undeconstructed/skribserv/db"
 	"github.com/undeconstructed/skribserv/lib"
 )
@@ -42,7 +42,15 @@ func makeWebFS(devMode bool) (fs.FS, error) {
 }
 
 func main() {
+	devMode := flag.Bool("dev-mode", false, "whether run from source")
+
+	flag.Parse()
+
 	logLevel := slog.LevelInfo
+
+	if *devMode {
+		logLevel = slog.LevelDebug
+	}
 
 	if l := os.Getenv("LOG_LEVEL"); l != "" {
 		// maybe there is another log level parser, but I can't only find the json one, which needs all this extra rubbish
@@ -57,11 +65,7 @@ func main() {
 
 	log := lib.DefaultLog(context.Background())
 
-	devMode := flag.Bool("dev-mode", false, "whether run from source")
-
-	flag.Parse()
-
-	config, path, err := config.ReadConfig("skribsrv.yaml")
+	config, path, err := agordoj.ReadConfig("skribsrv.yaml")
 	if err != nil {
 		log.Error("read config", "err", err)
 		os.Exit(1)
@@ -71,7 +75,7 @@ func main() {
 
 	// db
 
-	db, err := db.Munti(config.DBDSN)
+	db, err := db.Munti(config.DBDSN, log.Raw().With("so", "db"))
 	if err != nil {
 		log.Error("connect db", "err", err)
 		os.Exit(1)
@@ -93,23 +97,28 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /", lib.Middleware(true, func(w http.ResponseWriter, r *http.Request) {
+	mw := lib.BasicMiddleware(!*devMode)
+
+	mux.HandleFunc("GET /", mw(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
 	// app
 
-	laApo, err := app.Nova(db)
+	laApo, err := apo.Nova(db, log.Raw().With("so", "apo"))
 	if err != nil {
 		log.Error("make api", "err", err)
 		os.Exit(1)
 	}
 
-	laApo.Instaliĝi(func(pattern string, handler http.HandlerFunc) {
-		mux.HandleFunc(pattern, lib.Middleware(!*devMode, handler))
+	laApo.Muntiĝi(func(method, path string, handler http.HandlerFunc, mws ...lib.MiddlewareFunc) {
+		for _, m := range mws {
+			handler = m(handler)
+		}
+		mux.HandleFunc(method+" "+path, mw(handler))
 	})
 
-	// app serves
+	// serve
 
 	srv := http.Server{
 		Handler: mux,

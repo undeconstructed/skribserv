@@ -2,6 +2,9 @@ package db
 
 import (
 	"context"
+	"log/slog"
+	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -11,13 +14,32 @@ import (
 	"github.com/undeconstructed/skribserv/db/migrations"
 )
 
-func Munti(dbdsn string) (rel.Repository, error) {
+func Munti(dbdsn string, log *slog.Logger) (rel.Repository, error) {
 	adapter, err := postgres.Open(dbdsn)
 	if err != nil {
 		return nil, err
 	}
 
 	db := rel.New(adapter)
+	db.Instrumentation(func(ctx context.Context, op string, message string, args ...any) func(err error) {
+		// no op for rel functions.
+		if strings.HasPrefix(op, "rel-") {
+			return func(error) {}
+		}
+
+		t := time.Now()
+
+		return func(err error) {
+			level := slog.LevelDebug
+			if err != nil {
+				level = slog.LevelError
+			}
+
+			duration := time.Since(t)
+
+			log.Log(ctx, level, "db op", "op", op, "msg", message, "t", duration, "err", err, "args", args)
+		}
+	})
 
 	err = db.Ping(context.Background())
 	if err != nil {

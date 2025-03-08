@@ -57,7 +57,9 @@ func safeCall(f func()) any {
 	return err
 }
 
-type Router func(pattern string, handler http.HandlerFunc)
+type Router func(method, path string, handler http.HandlerFunc, mw ...MiddlewareFunc)
+
+type MiddlewareFunc func(http.HandlerFunc) http.HandlerFunc
 
 type mwResponseWriter struct {
 	http.ResponseWriter
@@ -69,41 +71,44 @@ func (w *mwResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func Middleware(recover bool, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		reqID := FariHazardanID("req", 8)
+func BasicMiddleware(recover bool) MiddlewareFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			reqID := FariHazardanID("req", 8)
 
-		ctx1 := WithLogValue(r.Context(), "req_id", reqID)
-		r = r.WithContext(ctx1)
+			ctx1 := WithLogValue(r.Context(), "req_id", reqID)
+			r = r.WithContext(ctx1)
 
-		w1 := &mwResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			w1 := &mwResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
-		t0 := time.Now()
+			t0 := time.Now()
 
-		var err any
-		if recover {
-			err = safeCall(func() {
+			var err any
+			if recover {
+				err = safeCall(func() {
+					next(w1, r)
+				})
+			} else {
 				next(w1, r)
-			})
-		} else {
-			next(w1, r)
+			}
+
+			if err != nil {
+				SendHTTPError(w, 0, fmt.Errorf("recover: %v", err))
+			}
+
+			t1 := time.Now()
+
+			status := w1.statusCode
+
+			DefaultLog(ctx1).Info("http", "remote", r.RemoteAddr, "method", r.Method, "url", r.URL.String(), "status", status, "time_ms", t1.Sub(t0).Milliseconds(), "err", err)
 		}
-
-		if err != nil {
-			SendHTTPError(w, 0, fmt.Errorf("recover: %v", err))
-		}
-
-		t1 := time.Now()
-
-		status := w1.statusCode
-
-		DefaultLog(ctx1).Info("http", "remote", r.RemoteAddr, "method", r.Method, "url", r.URL.String(), "status", status, "time_ms", t1.Sub(t0).Milliseconds(), "err", err)
 	}
 }
 
 type HTTPResponse struct {
-	Status int
-	Data   any
+	Status  int
+	Cookies []*http.Cookie
+	Data    any
 }
 
 type APIFunc func(ctx context.Context, r *http.Request) any
@@ -158,6 +163,15 @@ func SendHTTPResponse(w http.ResponseWriter, res HTTPResponse) {
 		return
 	}
 
-	w.WriteHeader(res.Status)
+	for _, c := range res.Cookies {
+		http.SetCookie(w, c)
+	}
+
+	status := res.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+
+	w.WriteHeader(status)
 	w.Write(data)
 }
