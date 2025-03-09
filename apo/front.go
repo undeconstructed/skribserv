@@ -19,38 +19,42 @@ type front struct {
 }
 
 func (a *front) Muntiĝi(mux lib.Router) {
-	mux("POST", "/api/mi/ensaluti", lib.APIHandler(a.Ensaluti))
-	mux("POST", "/api/mi/elsaluti", lib.APIHandler(a.Elsaluti))
-	mux("GET", "/api/mi", lib.APIHandler(a.PriMi), a.IdentigaMezilo)
+	h := lib.APIHandler
 
-	mux("GET", "/api/uzantoj", lib.APIHandler(a.PreniUzantojn), a.AdminaMezilo, a.IdentigaMezilo)
-	mux("POST", "/api/uzantoj", lib.APIHandler(a.SendiUzantojn), a.AdminaMezilo, a.IdentigaMezilo)
-	mux("GET", "/api/uzantoj/{id}", lib.APIHandler(a.PreniUzanton), a.AdminaMezilo, a.IdentigaMezilo)
+	mux("POST", "/api/mi/ensaluti", h(a.Ensaluti))
+	mux("POST", "/api/mi/elsaluti", h(a.Elsaluti))
+	mux("GET", "/api/mi", h(a.PriMi), a.kunIdentigo)
 
-	mux("GET", "/api/kursoj", lib.APIHandler(a.PreniKursojn), a.IdentigaMezilo)
-	mux("POST", "/api/kursoj", lib.APIHandler(a.SendiKursojn), a.AdminaMezilo, a.IdentigaMezilo)
-	mux("GET", "/api/kursoj/{id}", lib.APIHandler(a.PreniKurson), a.IdentigaMezilo)
+	mux("GET", "/api/uzantoj", h(a.PreniUzantojn), a.porAdmino, a.kunIdentigo)
+	mux("POST", "/api/uzantoj", h(a.SendiUzantojn), a.porAdmino, a.kunIdentigo)
+	mux("GET", "/api/uzantoj/{uzanto}", h(a.PreniUzanton), a.porAdminoAŭMemo, a.kunIdentigo)
 
-	mux("GET", "/api/kursoj/{kid}/eroj", lib.APIHandler(a.PreniKurserojn), a.IdentigaMezilo)
-	mux("POST", "/api/kursoj/{kid}/eroj", lib.APIHandler(a.SendiKurserojn), a.IdentigaMezilo)
-	mux("GET", "/api/kursoj/{kid}/eroj/{id}", lib.APIHandler(a.PreniKurseron), a.IdentigaMezilo)
+	mux("GET", "/api/kursoj", h(a.PreniKursojn), a.kunIdentigo)
+	mux("POST", "/api/kursoj", h(a.SendiKursojn), a.porAdmino, a.kunIdentigo)
+	mux("GET", "/api/kursoj/{kurso}", h(a.PreniKurson), a.kunIdentigo)
 
-	mux("GET", "/api/kursoj/{kid}/eroj/{eid}/hejmtaskoj", lib.APIHandler(a.TroviHejmtaskojnLaŭKursero), a.IdentigaMezilo)
+	mux("GET", "/api/kursoj/{kurso}/eroj", h(a.PreniKurserojn), a.kunIdentigo)
+	mux("POST", "/api/kursoj/{kurso}/eroj", h(a.SendiKurserojn), a.kunIdentigo)
+	mux("GET", "/api/kursoj/{kurso}/eroj/{kursero}", h(a.PreniKurseron), a.kunIdentigo)
 
-	mux("POST", "/api/lernantoj", lib.APIHandler(a.SendiHejmtaskon), a.AdminaMezilo, a.IdentigaMezilo)
-	mux("GET", "/api/lernantoj/", lib.APIHandler(a.PreniHejmtaskojn), a.IdentigaMezilo)
-	mux("GET", "/api/lernantoj/{id}", lib.APIHandler(a.PreniHejmtaskon), a.IdentigaMezilo)
+	mux("GET", "/api/kursoj/{kurso}/eroj/{kursero}/hejmtaskoj", h(a.TroviHejmtaskojnLaŭKursero), a.kunIdentigo)
 
-	mux("POST", "/api/uzantoj/{uid}/hejmtaskoj", lib.APIHandler(a.SendiHejmtaskon), a.IdentigaMezilo)
-	mux("GET", "/api/uzantoj/{uid}/hejmtaskoj/", lib.APIHandler(a.PreniHejmtaskojn), a.IdentigaMezilo)
-	mux("GET", "/api/uzantoj/{uid}/hejmtaskoj/{id}", lib.APIHandler(a.PreniHejmtaskon), a.IdentigaMezilo)
+	mux("POST", "/api/kursoj/{kurso}/lernantoj", h(a.SendiLernantojn), a.porAdmino, a.kunIdentigo)
+	mux("GET", "/api/kursoj/{kurso}/lernantoj/", h(a.PreniLernantojn), a.kunIdentigo)
+	mux("GET", "/api/kursoj/{kurso}/lernantoj/{lernanto}", h(a.PreniLernanton), a.kunIdentigo)
+
+	mux("GET", "/api/uzantoj/{uzanto}/kursoj", h(a.PreniKursojnDeUzanto), a.porAdminoAŭMemo, a.kunIdentigo)
+
+	mux("POST", "/api/uzantoj/{uzanto}/hejmtaskoj", h(a.SendiHejmtaskon), a.porAdminoAŭMemo, a.kunIdentigo)
+	mux("GET", "/api/uzantoj/{uzanto}/hejmtaskoj/", h(a.PreniHejmtaskojn), a.porAdminoAŭMemo, a.kunIdentigo)
+	mux("GET", "/api/uzantoj/{uzanto}/hejmtaskoj/{hejmtasko}", h(a.PreniHejmtaskon), a.kunIdentigo)
 }
 
 type ctxKey int
 
 const ctxKeyUzanto ctxKey = 1
 
-func (a *front) IdentigaMezilo(next http.HandlerFunc) http.HandlerFunc {
+func (a *front) kunIdentigo(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
@@ -121,13 +125,29 @@ func (a *front) IdentigaMezilo(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (a *front) AdminaMezilo(next http.HandlerFunc) http.HandlerFunc {
+func (a *front) porAdmino(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
 		u := a.uzantoElCtx(ctx)
 
 		if !u.Admina {
+			lib.SendHTTPError(w, 0, lib.ErrHTTPForbidden)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+func (a *front) porAdminoAŭMemo(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		uzantoID := r.PathValue("uzanto")
+
+		u := a.uzantoElCtx(ctx)
+
+		if !u.Admina && u.ID != DBID(uzantoID) {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPForbidden)
 			return
 		}
@@ -189,6 +209,8 @@ func (a *front) Elsaluti(ctx context.Context, r *http.Request) any {
 	}
 
 	sID := kuketo.Value
+
+	a.ident.forigiSeancon(sID)
 
 	seanckuketo := &http.Cookie{
 		Name:    "Seanco",
@@ -253,15 +275,18 @@ func (a *front) SendiUzantojn(ctx context.Context, r *http.Request) any {
 }
 
 func (a *front) PreniUzanton(ctx context.Context, r *http.Request) any {
-	id := r.PathValue("id")
+	uzantoID := r.PathValue("uzanto")
+	if uzantoID == "" {
+		return lib.ErrHTTPNotFound
+	}
 
-	user, err := a.back.preniUzanton(ctx, DBID(id))
+	user, err := a.back.preniUzanton(ctx, DBID(uzantoID))
 	if err != nil {
 		return err
 	}
 
 	return EntoRespondo{
-		Mesaĝo: "uzanto " + id,
+		Mesaĝo: "uzanto " + uzantoID,
 		Ento: UzantoJSON{
 			ID:   user.ID,
 			Nomo: user.Nomo,
@@ -315,7 +340,7 @@ func (a *front) SendiKursojn(ctx context.Context, r *http.Request) any {
 }
 
 func (a *front) PreniKurson(ctx context.Context, r *http.Request) any {
-	kursoID := r.PathValue("id")
+	kursoID := r.PathValue("kurso")
 	if kursoID == "" {
 		return lib.ErrHTTPNotFound
 	}
@@ -331,19 +356,20 @@ func (a *front) PreniKurson(ctx context.Context, r *http.Request) any {
 			ID:   kurso.ID,
 			Nomo: kurso.Nomo,
 			Posedanto: UzantoJSON{
-				ID: kurso.Posedanto,
+				ID:   kurso.PosedantoX.ID,
+				Nomo: kurso.PosedantoX.Nomo,
 			},
 		},
 	}
 }
 
 func (a *front) PreniKurserojn(ctx context.Context, r *http.Request) any {
-	kursoID := r.PathValue("kid")
+	kursoID := r.PathValue("kurso")
 	if kursoID == "" {
 		return lib.ErrHTTPNotFound
 	}
 
-	kurseroj, err := a.back.preniKurserojn(ctx, DBID(kursoID))
+	kurseroj, err := a.back.preniKurserojnLaŭKurso(ctx, DBID(kursoID))
 	if err != nil {
 		return err
 	}
@@ -355,7 +381,7 @@ func (a *front) PreniKurserojn(ctx context.Context, r *http.Request) any {
 }
 
 func (a *front) SendiKurserojn(ctx context.Context, r *http.Request) any {
-	kursoID := r.PathValue("kid")
+	kursoID := r.PathValue("kurso")
 	if kursoID == "" {
 		return lib.ErrHTTPNotFound
 	}
@@ -379,7 +405,7 @@ func (a *front) SendiKurserojn(ctx context.Context, r *http.Request) any {
 		return er
 	}
 
-	if kurso.Posedanto != uzanto.ID {
+	if kurso.PosedantoID != uzanto.ID {
 		return lib.ErrHTTPForbidden
 	}
 
@@ -405,28 +431,127 @@ func (a *front) PreniKurseron(ctx context.Context, r *http.Request) any {
 }
 
 func (a *front) PreniHejmtaskojn(ctx context.Context, r *http.Request) any {
-	userID := r.PathValue("uid")
-	if userID == "" {
+	uzantoID := r.PathValue("uzanto")
+	if uzantoID == "" {
 		return lib.ErrHTTPNotFound
 	}
 
-	hejmtaskoj, err := a.back.preniHejmtaskojnLaŭUzanto(ctx, DBID(userID))
+	hejmtaskoj, err := a.back.preniHejmtaskojnLaŭUzanto(ctx, DBID(uzantoID))
 	if err != nil {
 		return err
 	}
 
 	return EntoRespondo{
-		Mesaĝo: "hejmtaskoj de " + userID,
+		Mesaĝo: "hejmtaskoj de " + uzantoID,
 		Ento:   hejmtaskoj,
 	}
 }
 
+func (a *front) PreniLernantojn(ctx context.Context, r *http.Request) any {
+	kursoID := r.PathValue("kurso")
+	if kursoID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	lernantoj, err := a.back.preniLernantojnLaŭKurso(ctx, DBID(kursoID))
+	if err != nil {
+		return err
+	}
+
+	out := make([]LernantoJSON, 0, len(lernantoj))
+
+	for _, l := range lernantoj {
+		out = append(out, LernantoJSON{
+			ID: l.ID,
+			Uzanto: UzantoJSON{
+				ID: l.UzantoID,
+			},
+		})
+	}
+
+	return EntoRespondo{
+		Mesaĝo: "lernantoj de " + kursoID,
+		Ento:   out,
+	}
+}
+
+func (a *front) SendiLernantojn(ctx context.Context, r *http.Request) any {
+	kursoID := r.PathValue("kurso")
+	if kursoID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	dec := json.NewDecoder(r.Body)
+
+	lernanto1 := &LernantoJSON{}
+	er := dec.Decode(lernanto1)
+	if er != nil {
+		return er
+	}
+
+	if lernanto1.Kurso.ID != "" && lernanto1.Kurso.ID != DBID(kursoID) {
+		return lib.ErrHTTPBadRequest
+	}
+
+	lernanto2, er := a.back.metiLernanton(ctx, "", lernanto1.Uzanto.ID, DBID(kursoID))
+	if er != nil {
+		return er
+	}
+
+	return EntoRespondo{
+		Mesaĝo: "nova lernanto",
+		Ento: LernantoJSON{
+			ID: lernanto2.ID,
+			Uzanto: UzantoJSON{
+				ID: lernanto2.UzantoID,
+			},
+			Kurso: KursoJSON{
+				ID: lernanto2.KursoID,
+			},
+		},
+	}
+}
+
+func (a *front) PreniLernanton(ctx context.Context, r *http.Request) any {
+	return ErrNerealigite
+}
+
+func (a *front) PreniKursojnDeUzanto(ctx context.Context, r *http.Request) any {
+	uzantoID := r.PathValue("uzanto")
+	if uzantoID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	kursoj, err := a.back.preniKursojnLaŭUzanto(ctx, DBID(uzantoID))
+	if err != nil {
+		return err
+	}
+
+	out := make([]KursoJSON, 0, len(kursoj))
+
+	for _, l := range kursoj {
+		out = append(out, KursoJSON{
+			ID:    l.KursoID,
+			Nomo:  l.KursoX.Nomo,
+			Kiamo: l.KursoX.Kiamo,
+		})
+	}
+
+	return EntoRespondo{
+		Mesaĝo: "kursoj de " + uzantoID,
+		Ento:   out,
+	}
+}
+
 func (a *front) SendiHejmtaskon(ctx context.Context, r *http.Request) any {
+	uzantoID := r.PathValue("uzanto")
+	if uzantoID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
 	uzanto := a.uzantoElCtx(ctx)
 
-	pathUser := r.PathValue("uid")
-
-	if pathUser != string(uzanto.ID) {
+	if uzantoID != string(uzanto.ID) {
 		return lib.ErrHTTPForbidden
 	}
 
@@ -458,7 +583,7 @@ func (a *front) SendiHejmtaskon(ctx context.Context, r *http.Request) any {
 		Ento: HejmtaskoJSON{
 			ID: hejmtasko.ID,
 			Lernanto: UzantoJSON{
-				ID: hejmtasko.Lernanto,
+				ID: hejmtasko.LernantoID,
 			},
 			Teksto: hejmtasko.Teksto,
 		},
@@ -466,26 +591,26 @@ func (a *front) SendiHejmtaskon(ctx context.Context, r *http.Request) any {
 }
 
 func (a *front) PreniHejmtaskon(ctx context.Context, r *http.Request) any {
-	id := r.PathValue("id")
+	hejmtaskoID := r.PathValue("hejmtasko")
 
-	hejmtasko, err := a.back.preniHejmtaskon(ctx, DBID(id))
+	hejmtasko, err := a.back.preniHejmtaskon(ctx, DBID(hejmtaskoID))
 	if err != nil {
 		return err
 	}
 
 	return EntoRespondo{
-		Mesaĝo: "hejmtasko " + id,
+		Mesaĝo: "hejmtasko " + hejmtaskoID,
 		Ento: HejmtaskoJSON{
 			ID: hejmtasko.ID,
 			Lernanto: UzantoJSON{
-				ID: hejmtasko.Lernanto,
+				ID: hejmtasko.LernantoID,
 			},
 		},
 	}
 }
 
 func (a *front) TroviHejmtaskojnLaŭKursero(ctx context.Context, r *http.Request) any {
-	kurso, kursero := r.PathValue("kid"), r.PathValue("eid")
+	kurso, kursero := r.PathValue("kurso"), r.PathValue("kursero")
 	if kurso == "" || kursero == "" {
 		return lib.ErrHTTPNotFound
 	}

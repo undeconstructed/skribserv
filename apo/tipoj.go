@@ -12,7 +12,7 @@ type Uzanto struct {
 
 	Admina bool
 
-	KreitaJa  time.Time
+	KreitaJe  time.Time
 	ŜanĝitaJe time.Time
 }
 
@@ -21,10 +21,13 @@ func (Uzanto) Table() string {
 }
 
 type Kurso struct {
-	ID        DBID
-	Posedanto DBID
-	Nomo      string
-	Kiamo     time.Time
+	ID          DBID
+	PosedantoID DBID   `db:"posedanto"`
+	PosedantoX  Uzanto `ref:"posedanto" fk:"id"`
+	Nomo        string
+	Kiamo       time.Time
+
+	Kurseroj []Kursero `ref:"id" fk:"kurso"`
 }
 
 func (Kurso) Table() string {
@@ -43,9 +46,11 @@ func (Kursero) Table() string {
 }
 
 type Lernanto struct {
-	ID     DBID
-	Uzanto DBID
-	Kurso  DBID
+	ID       DBID
+	UzantoID DBID   `db:"uzanto"`
+	UzantoX  Uzanto `ref:"uzanto" fk:"id"`
+	KursoID  DBID   `db:"kurso"`
+	KursoX   Kurso  `ref:"kurso" fk:"id"`
 }
 
 func (Lernanto) Table() string {
@@ -53,9 +58,10 @@ func (Lernanto) Table() string {
 }
 
 type Instruisto struct {
-	ID     DBID
-	Uzanto DBID
-	Kurso  DBID
+	ID       DBID
+	UzantoID DBID   `db:"uzanto"`
+	UzantoX  Uzanto `ref:"uzanto" fk:"id"`
+	KursoID  DBID   `db:"kurso"`
 }
 
 func (Instruisto) Table() string {
@@ -63,10 +69,11 @@ func (Instruisto) Table() string {
 }
 
 type Hejmtasko struct {
-	ID       DBID
-	Lernanto DBID
-	Kursero  DBID
-	Teksto   string
+	ID         DBID
+	LernantoID DBID    `db:"lernanto"`
+	KurseroID  DBID    `db:"kursero"`
+	KurseroX   Kursero `ref:"kursero" fk:"id"`
+	Teksto     string
 }
 
 func (Hejmtasko) Table() string {
@@ -80,27 +87,33 @@ type EntoRespondo struct {
 
 type UzantoJSON struct {
 	ID       DBID   `json:"id"`
-	Nomo     string `json:"nomo"`
+	Nomo     string `json:"nomo,omitzero"`
 	Retpoŝŧo string `json:"retpoŝto,omitzero"`
 	Pasvorto string `json:"pasvorto,omitzero"`
 }
 
 type KursoJSON struct {
 	ID        DBID       `json:"id"`
-	Posedanto UzantoJSON `json:"posedanto"`
-	Nomo      string     `json:"nomo"`
-	Kiamo     time.Time  `json:"kiamo"`
+	Posedanto UzantoJSON `json:"posedanto,omitzero"`
+	Nomo      string     `json:"nomo,omitzero"`
+	Kiamo     time.Time  `json:"kiamo,omitzero"`
 }
 
 type KurseroJSON struct {
 	ID    DBID      `json:"id"`
-	Kurso KursoJSON `json:"kurso"`
-	Nomo  string    `json:"nomo"`
-	Kiamo time.Time `json:"kiamo"`
+	Kurso KursoJSON `json:"kurso,omitzero"`
+	Nomo  string    `json:"nomo,omitzero"`
+	Kiamo time.Time `json:"kiamo,omitzero"`
+}
+
+type LernantoJSON struct {
+	ID     DBID       `json:"id"`
+	Kurso  KursoJSON  `json:"kurso,omitzero"`
+	Uzanto UzantoJSON `json:"uzanto,omitzero"`
 }
 
 type HejmtaskoJSON struct {
 	ID       DBID       `json:"id"`
-	Lernanto UzantoJSON `json:"lernanto"`
-	Teksto   string     `json:"teksto"`
+	Lernanto UzantoJSON `json:"lernanto,omitzero"`
+	Teksto   string     `json:"teksto,omitzero"`
 }

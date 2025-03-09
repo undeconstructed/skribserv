@@ -93,10 +93,10 @@ func (a *back) metiKurson(ctx context.Context, id DBID, posedanto DBID, nomo str
 	}
 
 	kurso1 := &Kurso{
-		ID:        id,
-		Nomo:      nomo,
-		Posedanto: posedanto,
-		Kiamo:     kiamo,
+		ID:          id,
+		Nomo:        nomo,
+		PosedantoID: posedanto,
+		Kiamo:       kiamo,
 	}
 
 	if err := a.db.Insert(ctx, kurso1); err != nil {
@@ -109,13 +109,17 @@ func (a *back) metiKurson(ctx context.Context, id DBID, posedanto DBID, nomo str
 func (a *back) preniKurson(ctx context.Context, id DBID) (*Kurso, error) {
 	kurso := &Kurso{}
 
-	err := a.db.Find(ctx, kurso, where.Eq("id", id))
+	err := a.db.Find(ctx, kurso, rel.Select("*", "posedanto_x.*").JoinAssoc("posedanto_x"), where.Eq("id", id))
 	if err != nil {
 		if errors.Is(err, rel.ErrNotFound) {
 			return nil, err
 		}
 
 		return nil, fmt.Errorf("db (legi): %w", err)
+	}
+
+	if err := a.db.Preload(ctx, kurso, "kurseroj"); err != nil {
+		return nil, err
 	}
 
 	return kurso, nil
@@ -127,9 +131,9 @@ func (a *back) metiLernanton(ctx context.Context, id, uzanto, kurso DBID) (*Lern
 	}
 
 	lernanto1 := &Lernanto{
-		ID:     id,
-		Uzanto: uzanto,
-		Kurso:  kurso,
+		ID:       id,
+		UzantoID: uzanto,
+		KursoID:  kurso,
 	}
 
 	if err := a.db.Insert(ctx, lernanto1); err != nil {
@@ -142,7 +146,7 @@ func (a *back) metiLernanton(ctx context.Context, id, uzanto, kurso DBID) (*Lern
 func (a *back) preniLernantojnLaŭKurso(ctx context.Context, kurso DBID) ([]*Lernanto, error) {
 	var out []*Lernanto
 
-	err := a.db.FindAll(ctx, out, where.Eq("kurso", kurso))
+	err := a.db.FindAll(ctx, &out, where.Eq("kurso", kurso))
 	if err != nil {
 		return nil, fmt.Errorf("db (legi): %w", err)
 	}
@@ -150,10 +154,10 @@ func (a *back) preniLernantojnLaŭKurso(ctx context.Context, kurso DBID) ([]*Ler
 	return out, nil
 }
 
-func (a *back) preniLernantojnLaŭUzanto(ctx context.Context, uzanto DBID) ([]*Lernanto, error) {
+func (a *back) preniKursojnLaŭUzanto(ctx context.Context, uzanto DBID) ([]*Lernanto, error) {
 	var out []*Lernanto
 
-	err := a.db.FindAll(ctx, out, where.Eq("uzanto", uzanto))
+	err := a.db.FindAll(ctx, &out, rel.Select("*", "kurso_x.*").JoinAssoc("kurso_x"), where.Eq("uzanto", uzanto))
 	if err != nil {
 		return nil, fmt.Errorf("db (legi): %w", err)
 	}
@@ -209,7 +213,7 @@ func (a *back) preniKurseron(ctx context.Context, id DBID) (*Kursero, error) {
 func (a *back) preniKurserojnLaŭKurso(ctx context.Context, kurso DBID) ([]*Kursero, error) {
 	var out []*Kursero
 
-	err := a.db.FindAll(ctx, out, where.Eq("kurso", kurso), rel.SortDesc("kiam"))
+	err := a.db.FindAll(ctx, &out, where.Eq("kurso", kurso), rel.SortDesc("kiam"))
 	if err != nil {
 		return nil, fmt.Errorf("db (legi): %w", err)
 	}
@@ -223,9 +227,9 @@ func (a *back) metiHejmtaskon(ctx context.Context, id, lernanto DBID, teksto str
 	}
 
 	teskto1 := &Hejmtasko{
-		ID:       id,
-		Lernanto: lernanto,
-		Teksto:   teksto,
+		ID:         id,
+		LernantoID: lernanto,
+		Teksto:     teksto,
 	}
 
 	if err := a.db.Insert(ctx, teskto1); err != nil {

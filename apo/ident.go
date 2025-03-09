@@ -43,3 +43,10 @@ func (ai *Identilo) preniSeancon(id string) (*Uzanto, error) {
 
 	return u, nil
 }
+
+func (ai *Identilo) forigiSeancon(id string) {
+	ai.Lock()
+	defer ai.Unlock()
+
+	delete(ai.seancoj, id)
+}

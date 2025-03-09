@@ -46,6 +46,8 @@ func MigrateCreateInitial(schema *rel.Schema) {
 		t.String("uzanto", rel.Required(true))
 		t.String("kurso", rel.Required(true))
 
+		t.Unique([]string{"uzanto", "kurso"})
+
 		t.ForeignKey("uzanto", "uzantoj", "id", rel.OnDelete("cascade"))
 		t.ForeignKey("kurso", "kursoj", "id", rel.OnDelete("cascade"))
 	})
