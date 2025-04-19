@@ -103,6 +103,42 @@ func main() {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
+	// mux.HandleFunc("GET /", mw(func(w http.ResponseWriter, r *http.Request) {
+	// 	x := *r.URL
+	// 	f := &x
+	// 	f.Scheme = "http"
+	// 	f.Host = "localhost:5173"
+
+	// 	rf, err := http.Get(f.String())
+	// 	if err != nil {
+	// 		log.Error("proxy", "err", err)
+	// 		w.WriteHeader(http.StatusInternalServerError)
+	// 		return
+	// 	}
+
+	// 	for k, v := range rf.Header {
+	// 		w.Header().Add(k, v[0])
+	// 	}
+
+	// 	w.WriteHeader(rf.StatusCode)
+
+	// 	body := rf.Body
+	// 	defer body.Close()
+
+	// 	io.Copy(w, body)
+	// }))
+
+	corsMw := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Add("Access-Control-Allow-Origin", "http://localhost:5173")
+			next(w, r)
+		}
+	}
+
+	mux.HandleFunc("OPTIONS /", corsMw(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
 	// app
 
 	laApo, err := apo.Nova(db, log.Raw().With("so", "apo"))
@@ -112,10 +148,15 @@ func main() {
 	}
 
 	laApo.Muntiĝi(func(method, path string, handler http.HandlerFunc, mws ...lib.MiddlewareFunc) {
+		// if method != http.MethodOptions {
+		// 	mux.HandleFunc("OPTIONS /api"+path, corsMw(optionsHandler))
+		// }
+
 		for _, m := range mws {
 			handler = m(handler)
 		}
-		mux.HandleFunc(method+" "+path, mw(handler))
+
+		mux.HandleFunc(method+" /api"+path, corsMw(mw(handler)))
 	})
 
 	// serve

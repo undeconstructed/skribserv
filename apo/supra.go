@@ -21,33 +21,33 @@ type front struct {
 func (a *front) Muntiĝi(mux lib.Router) {
 	h := lib.APIHandler
 
-	mux("POST", "/api/mi/ensaluti", h(a.Ensaluti))
-	mux("POST", "/api/mi/elsaluti", h(a.Elsaluti))
-	mux("GET", "/api/mi", h(a.PriMi), a.kunIdentigo)
+	mux("POST", "/mi/ensaluti", h(a.Ensaluti))
+	mux("POST", "/mi/elsaluti", h(a.Elsaluti))
+	mux("GET", "/mi", h(a.PriMi), a.kunIdentigo)
 
-	mux("GET", "/api/uzantoj", h(a.PreniUzantojn), a.porAdmino, a.kunIdentigo)
-	mux("POST", "/api/uzantoj", h(a.SendiUzantojn), a.porAdmino, a.kunIdentigo)
-	mux("GET", "/api/uzantoj/{uzanto}", h(a.PreniUzanton), a.porAdminoAŭMemo, a.kunIdentigo)
+	mux("GET", "/uzantoj", h(a.PreniUzantojn), a.porAdmino, a.kunIdentigo)
+	mux("POST", "/uzantoj", h(a.SendiUzantojn), a.porAdmino, a.kunIdentigo)
+	mux("GET", "/uzantoj/{uzanto}", h(a.PreniUzanton), a.porAdminoAŭMemo, a.kunIdentigo)
 
-	mux("GET", "/api/kursoj", h(a.PreniKursojn), a.kunIdentigo)
-	mux("POST", "/api/kursoj", h(a.SendiKursojn), a.porAdmino, a.kunIdentigo)
-	mux("GET", "/api/kursoj/{kurso}", h(a.PreniKurson), a.kunIdentigo)
+	mux("GET", "/kursoj", h(a.PreniKursojn), a.kunIdentigo)
+	mux("POST", "/kursoj", h(a.SendiKursojn), a.porAdmino, a.kunIdentigo)
+	mux("GET", "/kursoj/{kurso}", h(a.PreniKurson), a.kunIdentigo)
 
-	mux("GET", "/api/kursoj/{kurso}/eroj", h(a.PreniKurserojn), a.kunIdentigo)
-	mux("POST", "/api/kursoj/{kurso}/eroj", h(a.SendiKurserojn), a.kunIdentigo)
-	mux("GET", "/api/kursoj/{kurso}/eroj/{kursero}", h(a.PreniKurseron), a.kunIdentigo)
+	mux("GET", "/kursoj/{kurso}/eroj", h(a.PreniKurserojn), a.kunIdentigo)
+	mux("POST", "/kursoj/{kurso}/eroj", h(a.SendiKurserojn), a.kunIdentigo)
+	mux("GET", "/kursoj/{kurso}/eroj/{kursero}", h(a.PreniKurseron), a.kunIdentigo)
 
-	mux("GET", "/api/kursoj/{kurso}/eroj/{kursero}/hejmtaskoj", h(a.TroviHejmtaskojnLaŭKursero), a.kunIdentigo)
+	mux("GET", "/kursoj/{kurso}/eroj/{kursero}/hejmtaskoj", h(a.TroviHejmtaskojnLaŭKursero), a.kunIdentigo)
 
-	mux("POST", "/api/kursoj/{kurso}/lernantoj", h(a.SendiLernantojn), a.porAdmino, a.kunIdentigo)
-	mux("GET", "/api/kursoj/{kurso}/lernantoj/", h(a.PreniLernantojn), a.kunIdentigo)
-	mux("GET", "/api/kursoj/{kurso}/lernantoj/{lernanto}", h(a.PreniLernanton), a.kunIdentigo)
+	mux("POST", "/kursoj/{kurso}/lernantoj", h(a.SendiLernantojn), a.porAdmino, a.kunIdentigo)
+	mux("GET", "/kursoj/{kurso}/lernantoj", h(a.PreniLernantojn), a.kunIdentigo)
+	mux("GET", "/kursoj/{kurso}/lernantoj/{lernanto}", h(a.PreniLernanton), a.kunIdentigo)
 
-	mux("GET", "/api/uzantoj/{uzanto}/kursoj", h(a.PreniKursojnDeUzanto), a.porAdminoAŭMemo, a.kunIdentigo)
+	mux("GET", "/uzantoj/{uzanto}/kursoj", h(a.PreniKursojnDeUzanto), a.porAdminoAŭMemo, a.kunIdentigo)
 
-	mux("POST", "/api/uzantoj/{uzanto}/hejmtaskoj", h(a.SendiHejmtaskon), a.porAdminoAŭMemo, a.kunIdentigo)
-	mux("GET", "/api/uzantoj/{uzanto}/hejmtaskoj/", h(a.PreniHejmtaskojn), a.porAdminoAŭMemo, a.kunIdentigo)
-	mux("GET", "/api/uzantoj/{uzanto}/hejmtaskoj/{hejmtasko}", h(a.PreniHejmtaskon), a.kunIdentigo)
+	mux("POST", "/uzantoj/{uzanto}/hejmtaskoj", h(a.SendiHejmtaskon), a.porAdminoAŭMemo, a.kunIdentigo)
+	mux("GET", "/uzantoj/{uzanto}/hejmtaskoj", h(a.PreniHejmtaskojn), a.porAdminoAŭMemo, a.kunIdentigo)
+	mux("GET", "/uzantoj/{uzanto}/hejmtaskoj/{hejmtasko}", h(a.PreniHejmtaskon), a.kunIdentigo)
 }
 
 type ctxKey int
@@ -181,9 +181,10 @@ func (a *front) Ensaluti(ctx context.Context, r *http.Request) any {
 	}
 
 	seanckuketo := &http.Cookie{
-		Name:  "Seanco",
-		Value: sID,
-		Path:  "/",
+		Name:    "Seanco",
+		Value:   sID,
+		Path:    "/",
+		Expires: time.Now().Add(24 * time.Hour),
 	}
 
 	return lib.HTTPResponse{
@@ -235,7 +236,10 @@ func (a *front) PriMi(ctx context.Context, r *http.Request) any {
 
 	return EntoRespondo{
 		Mesaĝo: "uzanto",
-		Ento:   uzanto,
+		Ento: UzantoJSON{
+			ID:   uzanto.ID,
+			Nomo: uzanto.Nomo,
+		},
 	}
 }
 
@@ -245,9 +249,15 @@ func (a *front) PreniUzantojn(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
+	el := make([]UzantoJSON, 0, len(uzantoj))
+
+	for _, u := range uzantoj {
+		el = append(el, apiDeUzanto(u))
+	}
+
 	return EntoRespondo{
 		Mesaĝo: "uzantoj",
-		Ento:   uzantoj,
+		Ento:   el,
 	}
 }
 
@@ -267,10 +277,7 @@ func (a *front) SendiUzantojn(ctx context.Context, r *http.Request) any {
 
 	return EntoRespondo{
 		Mesaĝo: "nova uzanto",
-		Ento: UzantoJSON{
-			ID:   uzanto2.ID,
-			Nomo: uzanto2.Nomo,
-		},
+		Ento:   apiDeUzanto(uzanto2),
 	}
 }
 
@@ -280,17 +287,21 @@ func (a *front) PreniUzanton(ctx context.Context, r *http.Request) any {
 		return lib.ErrHTTPNotFound
 	}
 
-	user, err := a.back.preniUzanton(ctx, DBID(uzantoID))
+	uzanto, err := a.back.preniUzanton(ctx, DBID(uzantoID))
 	if err != nil {
 		return err
 	}
 
 	return EntoRespondo{
 		Mesaĝo: "uzanto " + uzantoID,
-		Ento: UzantoJSON{
-			ID:   user.ID,
-			Nomo: user.Nomo,
-		},
+		Ento:   apiDeUzanto(uzanto),
+	}
+}
+
+func apiDeUzanto(en *Uzanto) UzantoJSON {
+	return UzantoJSON{
+		ID:   en.ID,
+		Nomo: en.Nomo,
 	}
 }
 
@@ -300,9 +311,15 @@ func (a *front) PreniKursojn(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
+	el := make([]KursoJSON, 0, len(kursoj))
+
+	for _, k := range kursoj {
+		el = append(el, apiDeKurso(k))
+	}
+
 	return EntoRespondo{
 		Mesaĝo: "kursoj",
-		Ento:   kursoj,
+		Ento:   el,
 	}
 }
 
@@ -329,13 +346,7 @@ func (a *front) SendiKursojn(ctx context.Context, r *http.Request) any {
 
 	return EntoRespondo{
 		Mesaĝo: "nova kurso",
-		Ento: KursoJSON{
-			ID:   kurso2.ID,
-			Nomo: kurso2.Nomo,
-			Posedanto: UzantoJSON{
-				ID: user.ID,
-			},
-		},
+		Ento:   apiDeKurso(kurso2),
 	}
 }
 
@@ -352,13 +363,17 @@ func (a *front) PreniKurson(ctx context.Context, r *http.Request) any {
 
 	return EntoRespondo{
 		Mesaĝo: "kurso",
-		Ento: KursoJSON{
-			ID:   kurso.ID,
-			Nomo: kurso.Nomo,
-			Posedanto: UzantoJSON{
-				ID:   kurso.PosedantoX.ID,
-				Nomo: kurso.PosedantoX.Nomo,
-			},
+		Ento:   apiDeKurso(kurso),
+	}
+}
+
+func apiDeKurso(en *Kurso) KursoJSON {
+	return KursoJSON{
+		ID:   en.ID,
+		Nomo: en.Nomo,
+		Posedanto: UzantoJSON{
+			ID:   en.PosedantoX.ID,
+			Nomo: en.PosedantoX.Nomo,
 		},
 	}
 }
@@ -464,7 +479,8 @@ func (a *front) PreniLernantojn(ctx context.Context, r *http.Request) any {
 		out = append(out, LernantoJSON{
 			ID: l.ID,
 			Uzanto: UzantoJSON{
-				ID: l.UzantoID,
+				ID:   l.UzantoID,
+				Nomo: l.UzantoX.Nomo,
 			},
 		})
 	}

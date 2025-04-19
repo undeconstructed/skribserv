@@ -1,3 +1,3 @@
 # Skribserv
 
-Servilo por io. Verkita sen dependaĵoj.
+Servilo por io.
