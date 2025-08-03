@@ -1,2 +1,2 @@
 listen_addr: "localhost:8088"
-dbdsn: "postgres://skribsrv:skribsrv@127.0.0.1:5432/skribsrv?sslmode=disable"
+dbdsn: "postgres://skribserv:skribserv@127.0.0.1:5432/skribserv?sslmode=disable"

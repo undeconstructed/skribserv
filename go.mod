@@ -2,7 +2,7 @@ module github.com/undeconstructed/skribserv
 
 go 1.23.0
 
-replace github.com/go-rel/postgres => ../go-rel-postgres
+replace github.com/go-rel/postgres => ../rel-postgres
 
 require (
 	github.com/PumpkinSeed/slog-context v0.1.2

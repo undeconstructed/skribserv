@@ -15,8 +15,8 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/undeconstructed/skribserv/agordoj"
-	"github.com/undeconstructed/skribserv/apo"
+	"github.com/undeconstructed/skribserv/app"
+	"github.com/undeconstructed/skribserv/config"
 	"github.com/undeconstructed/skribserv/db"
 	"github.com/undeconstructed/skribserv/lib"
 )
@@ -65,7 +65,7 @@ func main() {
 
 	log := lib.DefaultLog(context.Background())
 
-	config, path, err := agordoj.ReadConfig("skribsrv.yaml")
+	config, path, err := config.ReadConfig("skribsrv.yaml")
 	if err != nil {
 		log.Error("read config", "err", err)
 		os.Exit(1)
@@ -75,7 +75,7 @@ func main() {
 
 	// db
 
-	db, err := db.Munti(config.DBDSN, log.Raw().With("so", "db"))
+	db, err := db.Setup(config.DBDSN, log.Raw().With("so", "db"))
 	if err != nil {
 		log.Error("connect db", "err", err)
 		os.Exit(1)
@@ -141,13 +141,13 @@ func main() {
 
 	// app
 
-	laApo, err := apo.Nova(db, log.Raw().With("so", "apo"))
+	theApp, err := app.New(db, log.Raw().With("so", "apo"))
 	if err != nil {
 		log.Error("make api", "err", err)
 		os.Exit(1)
 	}
 
-	laApo.Muntiĝi(func(method, path string, handler http.HandlerFunc, mws ...lib.MiddlewareFunc) {
+	theApp.Mount(func(method, path string, handler http.HandlerFunc, mws ...lib.MiddlewareFunc) {
 		// if method != http.MethodOptions {
 		// 	mux.HandleFunc("OPTIONS /api"+path, corsMw(optionsHandler))
 		// }

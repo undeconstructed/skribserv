@@ -6,15 +6,13 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-
 	"github.com/go-rel/migration"
 	"github.com/go-rel/postgres"
 	"github.com/go-rel/rel"
 	"github.com/undeconstructed/skribserv/db/migrations"
 )
 
-func Munti(dbdsn string, log *slog.Logger) (rel.Repository, error) {
+func Setup(dbdsn string, log *slog.Logger) (rel.Repository, error) {
 	adapter, err := postgres.Open(dbdsn)
 	if err != nil {
 		return nil, err

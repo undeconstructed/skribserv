@@ -1,4 +1,4 @@
-package apo
+package app
 
 import (
 	"context"
@@ -14,16 +14,16 @@ import (
 // 	return lib.DefaultLog(ctx)
 // }
 
-func hazardaID(antaŭaĵo string, longo int) DBID {
-	return DBID(lib.FariHazardanID(antaŭaĵo, longo))
+func makeRandomID(prefix string, length int) DBID {
+	return DBID(lib.MakeRandomID(prefix, length))
 }
 
-type Apo struct {
+type App struct {
 	*back
 	*front
 }
 
-func Nova(db rel.Repository, log *slog.Logger) (*Apo, error) {
+func New(db rel.Repository, log *slog.Logger) (*App, error) {
 	lf := func(ctx context.Context) *lib.Logger {
 		return lib.Log(log, ctx)
 	}
@@ -35,11 +35,11 @@ func Nova(db rel.Repository, log *slog.Logger) (*Apo, error) {
 
 	front := &front{
 		back:  back,
-		ident: NovaIdentilo(),
+		ident: NewAuthenticator(),
 		log:   lf,
 	}
 
-	app := &Apo{
+	app := &App{
 		back:  back,
 		front: front,
 	}

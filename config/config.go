@@ -1,4 +1,4 @@
-package agordoj
+package config
 
 import (
 	"errors"

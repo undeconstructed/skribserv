@@ -74,7 +74,7 @@ func (w *mwResponseWriter) WriteHeader(code int) {
 func BasicMiddleware(recover bool) MiddlewareFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
-			reqID := FariHazardanID("req", 8)
+			reqID := MakeRandomID("req", 8)
 
 			ctx1 := WithLogValue(r.Context(), "req_id", reqID)
 			r = r.WithContext(ctx1)

@@ -1,0 +1,639 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/go-rel/rel"
+	"github.com/undeconstructed/skribserv/lib"
+)
+
+type front struct {
+	back  *back
+	ident *Authenticator
+	log   func(context.Context) *lib.Logger
+}
+
+func (a *front) Mount(mux lib.Router) {
+	h := lib.APIHandler
+
+	mux("POST", "/mi/ensaluti", h(a.Login))
+	mux("POST", "/mi/elsaluti", h(a.Logout))
+	mux("GET", "/mi", h(a.AboutMe), a.identify)
+
+	mux("GET", "/uzantoj", h(a.GetUsers), a.forAdmin, a.identify)
+	mux("POST", "/uzantoj", h(a.PostUsers), a.forAdmin, a.identify)
+	mux("GET", "/uzantoj/{user}", h(a.GetUser), a.forAdminOrSelf, a.identify)
+
+	mux("GET", "/kursoj", h(a.GetCourses), a.identify)
+	mux("POST", "/kursoj", h(a.PostCourses), a.forAdmin, a.identify)
+	mux("GET", "/kursoj/{course}", h(a.GetCourse), a.identify)
+
+	mux("GET", "/kursoj/{course}/eroj", h(a.GetLessons), a.identify)
+	mux("POST", "/kursoj/{course}/eroj", h(a.PostLessons), a.identify)
+	mux("GET", "/kursoj/{course}/eroj/{lesson}", h(a.GetLesson), a.identify)
+
+	mux("GET", "/kursoj/{course}/eroj/{lesson}/hejmtaskoj", h(a.GetHomeworksForCoursePart), a.identify)
+
+	mux("POST", "/kursoj/{course}/lernantoj", h(a.PostLearners), a.forAdmin, a.identify)
+	mux("GET", "/kursoj/{course}/lernantoj", h(a.GetLearners), a.identify)
+	mux("GET", "/kursoj/{course}/lernantoj/{learner}", h(a.GetLearner), a.identify)
+
+	mux("GET", "/uzantoj/{user}/kursoj", h(a.GetCoursesForUser), a.forAdminOrSelf, a.identify)
+
+	mux("POST", "/uzantoj/{user}/hejmtaskoj", h(a.PostHomework), a.forAdminOrSelf, a.identify)
+	mux("GET", "/uzantoj/{user}/hejmtaskoj", h(a.GetHomeworksForUser), a.forAdminOrSelf, a.identify)
+	mux("GET", "/uzantoj/{user}/hejmtaskoj/{homework}", h(a.GetHomework), a.identify)
+}
+
+type ctxKey int
+
+const ctxKeyUser ctxKey = 1
+
+func (a *front) identify(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		type seancfn func() (*User, error)
+
+		tryCookie := func() (*User, error) {
+			if sessionCookie, er := r.Cookie("Seanco"); er == nil {
+				sessionID := sessionCookie.Value
+
+				user, er := a.ident.getSessionUser(sessionID)
+				if er != nil {
+					if errors.Is(er, ErrNoSession) {
+						return nil, nil
+					}
+
+					return nil, lib.ErrHTTPUnauthorized
+				}
+
+				return user, nil
+			}
+
+			return nil, nil
+		}
+
+		tryHeader := func() (*User, error) {
+			if email, password, ok := r.BasicAuth(); ok {
+				user, er := a.back.getUserByEmail(ctx, email)
+				if er != nil {
+					if errors.Is(er, rel.ErrNotFound) {
+						return nil, lib.ErrHTTPUnauthorized
+					}
+
+					return nil, er
+				}
+
+				if user.Password != password {
+					return nil, lib.ErrHTTPUnauthorized
+				}
+
+				return user, nil
+			}
+
+			return nil, nil
+		}
+
+		tryBasic := func() (*User, error) { return nil, nil }
+
+		for _, f := range []seancfn{tryCookie, tryHeader, tryBasic} {
+			user, er := f()
+			if er != nil {
+				lib.SendHTTPError(w, 0, er)
+				return
+			}
+
+			if user != nil {
+				ctx1 := context.WithValue(r.Context(), ctxKeyUser, user)
+				r1 := r.WithContext(ctx1)
+
+				a.log(ctx).Debug("auth", "user", user.ID)
+
+				next(w, r1)
+
+				return
+			}
+		}
+
+		lib.SendHTTPError(w, 0, lib.ErrHTTPUnauthorized)
+	}
+}
+
+func (a *front) forAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		u := a.userFromContext(ctx)
+
+		if !u.Admin {
+			lib.SendHTTPError(w, 0, lib.ErrHTTPForbidden)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+func (a *front) forAdminOrSelf(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		userID := r.PathValue("user")
+
+		u := a.userFromContext(ctx)
+
+		if !u.Admin && u.ID != DBID(userID) {
+			lib.SendHTTPError(w, 0, lib.ErrHTTPForbidden)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+func (a *front) Login(ctx context.Context, r *http.Request) any {
+	type loginReq struct {
+		Email    string `json:"retpoŝto"`
+		Password string `json:"pasvorto"`
+	}
+
+	req, err := DecodeBody(r, &loginReq{})
+	if err != nil {
+		return err
+	}
+
+	user, err := a.back.getUserByEmail(ctx, req.Email)
+	if err != nil {
+		return err
+	}
+
+	sID, err := a.ident.putSession(user)
+	if err != nil {
+		return err
+	}
+
+	sessionCookie := &http.Cookie{
+		Name:    "Seanco",
+		Value:   sID,
+		Path:    "/",
+		Expires: time.Now().Add(24 * time.Hour),
+	}
+
+	return lib.HTTPResponse{
+		Cookies: []*http.Cookie{sessionCookie},
+		Data: EntityResponse{
+			Message: "seanco " + sID,
+			Entity: UserJSON{
+				ID:   user.ID,
+				Name: user.Name,
+			},
+		},
+	}
+}
+
+func (a *front) Logout(ctx context.Context, r *http.Request) any {
+	cookie, err := r.Cookie("Seanco")
+	if err != nil {
+		if errors.Is(err, http.ErrNoCookie) {
+			return lib.HTTPResponse{}
+		}
+
+		return err
+	}
+
+	sID := cookie.Value
+
+	a.ident.deleteSession(sID)
+
+	sessionCookie := &http.Cookie{
+		Name:    "Seanco",
+		Path:    "/",
+		Expires: time.Time{},
+	}
+
+	return lib.HTTPResponse{
+		Cookies: []*http.Cookie{sessionCookie},
+		Data: EntityResponse{
+			Message: "seanco " + sID,
+		},
+	}
+}
+
+func (a *front) userFromContext(ctx context.Context) *User {
+	return ctx.Value(ctxKeyUser).(*User)
+}
+
+func (a *front) AboutMe(ctx context.Context, r *http.Request) any {
+	user := ctx.Value(ctxKeyUser).(*User)
+
+	return EntityResponse{
+		Message: "uzanto",
+		Entity: UserJSON{
+			ID:   user.ID,
+			Name: user.Name,
+		},
+	}
+}
+
+func (a *front) GetUsers(ctx context.Context, r *http.Request) any {
+	users, err := a.back.listUsers(ctx)
+	if err != nil {
+		return err
+	}
+
+	el := make([]UserJSON, 0, len(users))
+
+	for _, u := range users {
+		el = append(el, apiFromUser(u))
+	}
+
+	return EntityResponse{
+		Message: "uzantoj",
+		Entity:  el,
+	}
+}
+
+func (a *front) PostUsers(ctx context.Context, r *http.Request) any {
+	user1, err := DecodeBody(r, &UserJSON{})
+	if err != nil {
+		return err
+	}
+
+	user2, err := a.back.putUser(ctx, "", user1.Name, user1.Email, user1.Password)
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "nova uzanto",
+		Entity:  apiFromUser(user2),
+	}
+}
+
+func (a *front) GetUser(ctx context.Context, r *http.Request) any {
+	userID := r.PathValue("user")
+	if userID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	user, err := a.back.getUser(ctx, DBID(userID))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "uzanto " + userID,
+		Entity:  apiFromUser(user),
+	}
+}
+
+func apiFromUser(en *User) UserJSON {
+	return UserJSON{
+		ID:   en.ID,
+		Name: en.Name,
+	}
+}
+
+func (a *front) GetCourses(ctx context.Context, r *http.Request) any {
+	courses, err := a.back.listCourses(ctx)
+	if err != nil {
+		return err
+	}
+
+	el := make([]CourseJSON, 0, len(courses))
+
+	for _, k := range courses {
+		el = append(el, apiFromCourse(k))
+	}
+
+	return EntityResponse{
+		Message: "courses",
+		Entity:  el,
+	}
+}
+
+func (a *front) PostCourses(ctx context.Context, r *http.Request) any {
+	user := a.userFromContext(ctx)
+
+	course1, err := DecodeBody(r, &CourseJSON{})
+	if err != nil {
+		return err
+	}
+
+	owner := course1.Owner.ID
+	if owner == "" {
+		owner = user.ID
+	}
+
+	course2, err := a.back.putCourse(ctx, "", owner, course1.Name, course1.Time)
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "nova kurso",
+		Entity:  apiFromCourse(course2),
+	}
+}
+
+func (a *front) GetCourse(ctx context.Context, r *http.Request) any {
+	courseID := r.PathValue("course")
+	if courseID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	course, err := a.back.getCourse(ctx, DBID(courseID))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "kurso",
+		Entity:  apiFromCourse(course),
+	}
+}
+
+func apiFromCourse(en *Course) CourseJSON {
+	return CourseJSON{
+		ID:   en.ID,
+		Name: en.Name,
+		Owner: UserJSON{
+			ID:   en.OwnerX.ID,
+			Name: en.OwnerX.Name,
+		},
+	}
+}
+
+func (a *front) GetLessons(ctx context.Context, r *http.Request) any {
+	courseID := r.PathValue("course")
+	if courseID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	lessons, err := a.back.getLessonsForCourse(ctx, DBID(courseID))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "kurseroj de " + courseID,
+		Entity:  lessons,
+	}
+}
+
+func (a *front) PostLessons(ctx context.Context, r *http.Request) any {
+	courseID := r.PathValue("course")
+	if courseID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	uzanto := a.userFromContext(ctx)
+
+	lesson1, err := DecodeBody(r, &LessonJSON{})
+	if err != nil {
+		return err
+	}
+
+	if lesson1.Course.ID != "" && lesson1.Course.ID != DBID(courseID) {
+		return lib.ErrHTTPBadRequest
+	}
+
+	course, err := a.back.getCourse(ctx, DBID(courseID))
+	if err != nil {
+		return err
+	}
+
+	if course.OwnerID != uzanto.ID {
+		return lib.ErrHTTPForbidden
+	}
+
+	lesson2, err := a.back.putLesson(ctx, "", course.ID, lesson1.Name, lesson1.Time)
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "nova kursero",
+		Entity: LessonJSON{
+			ID:   lesson2.ID,
+			Name: lesson2.Name,
+			Course: CourseJSON{
+				ID: course.ID,
+			},
+		},
+	}
+}
+
+func (a *front) GetLesson(ctx context.Context, r *http.Request) any {
+	return ErrUnimplemented
+}
+
+func (a *front) GetHomeworksForUser(ctx context.Context, r *http.Request) any {
+	userID := r.PathValue("user")
+	if userID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	homeworks, err := a.back.getHomeworksForUser(ctx, DBID(userID))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "hejmtaskoj de " + userID,
+		Entity:  homeworks,
+	}
+}
+
+func (a *front) GetLearners(ctx context.Context, r *http.Request) any {
+	courseID := r.PathValue("course")
+	if courseID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	learners, err := a.back.getLearnersByCourse(ctx, DBID(courseID))
+	if err != nil {
+		return err
+	}
+
+	out := make([]LearnerJSON, 0, len(learners))
+
+	for _, l := range learners {
+		out = append(out, LearnerJSON{
+			ID: l.ID,
+			User: UserJSON{
+				ID:   l.UserID,
+				Name: l.UserX.Name,
+			},
+		})
+	}
+
+	return EntityResponse{
+		Message: "lernantoj de " + courseID,
+		Entity:  out,
+	}
+}
+
+func (a *front) PostLearners(ctx context.Context, r *http.Request) any {
+	courseID := r.PathValue("course")
+	if courseID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	learner1, err := DecodeBody(r, &LearnerJSON{})
+	if err != nil {
+		return err
+	}
+
+	if learner1.Course.ID != "" && learner1.Course.ID != DBID(courseID) {
+		return lib.ErrHTTPBadRequest
+	}
+
+	learner2, err := a.back.putLearner(ctx, "", learner1.User.ID, DBID(courseID))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "nova lernanto",
+		Entity: LearnerJSON{
+			ID: learner2.ID,
+			User: UserJSON{
+				ID: learner2.UserID,
+			},
+			Course: CourseJSON{
+				ID: learner2.CourseID,
+			},
+		},
+	}
+}
+
+func (a *front) GetLearner(ctx context.Context, r *http.Request) any {
+	return ErrUnimplemented
+}
+
+func (a *front) GetCoursesForUser(ctx context.Context, r *http.Request) any {
+	userID := r.PathValue("user")
+	if userID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	courses, err := a.back.getLearnersByUser(ctx, DBID(userID))
+	if err != nil {
+		return err
+	}
+
+	out := make([]CourseJSON, 0, len(courses))
+
+	for _, l := range courses {
+		out = append(out, CourseJSON{
+			ID:   l.CourseID,
+			Name: l.CourseX.Name,
+			Time: l.CourseX.Time,
+		})
+	}
+
+	return EntityResponse{
+		Message: "kursoj de " + userID,
+		Entity:  out,
+	}
+}
+
+func (a *front) PostHomework(ctx context.Context, r *http.Request) any {
+	userID := r.PathValue("user")
+	if userID == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	user := a.userFromContext(ctx)
+
+	if userID != string(user.ID) {
+		return lib.ErrHTTPForbidden
+	}
+
+	dec := json.NewDecoder(r.Body)
+
+	homework1 := &HomeworkJSON{}
+	err := dec.Decode(homework1)
+	if err != nil {
+		return err
+	}
+
+	if homework1.Learner.ID != "" && homework1.Learner.ID != user.ID {
+		return lib.ErrHTTPForbidden
+	}
+
+	if homework1.Text == "" {
+		return fmt.Errorf("%w: mankas teksto", lib.ErrHTTPBadRequest)
+	}
+
+	learner := user.ID
+
+	homework, err := a.back.putHomework(ctx, "", learner, homework1.Text)
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "nova hejmtasko",
+		Entity: HomeworkJSON{
+			ID: homework.ID,
+			Learner: UserJSON{
+				ID: homework.LearnerID,
+			},
+			Text: homework.Text,
+		},
+	}
+}
+
+func (a *front) GetHomework(ctx context.Context, r *http.Request) any {
+	homeworkID := r.PathValue("homework")
+
+	homework, err := a.back.getHomework(ctx, DBID(homeworkID))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "homework " + homeworkID,
+		Entity: HomeworkJSON{
+			ID: homework.ID,
+			Learner: UserJSON{
+				ID: homework.LearnerID,
+			},
+		},
+	}
+}
+
+func (a *front) GetHomeworksForCoursePart(ctx context.Context, r *http.Request) any {
+	course, lesson := r.PathValue("course"), r.PathValue("lesson")
+	if course == "" || lesson == "" {
+		return lib.ErrHTTPNotFound
+	}
+
+	homeworks, err := a.back.getHomeworksForLesson(ctx, DBID(course), DBID(lesson))
+	if err != nil {
+		return err
+	}
+
+	return EntityResponse{
+		Message: "hejmtasko pri " + lesson,
+		Entity:  homeworks,
+	}
+}
+
+func DecodeBody[T any](r *http.Request, t *T) (*T, error) {
+	dec := json.NewDecoder(r.Body)
+
+	err := dec.Decode(t)
+	if err != nil {
+		return t, err
+	}
+
+	return t, nil
+}
