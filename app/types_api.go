@@ -12,6 +12,7 @@ type UserJSON struct {
 	Name     string `json:"nomo,omitzero"`
 	Email    string `json:"retpoŝto,omitzero"`
 	Password string `json:"pasvorto,omitzero"`
+	Admin    bool   `json:"admina,omitzero"`
 }
 
 type CourseJSON struct {

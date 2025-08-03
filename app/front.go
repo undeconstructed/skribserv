@@ -189,8 +189,9 @@ func (a *front) Login(ctx context.Context, r *http.Request) any {
 		Data: EntityResponse{
 			Message: "seanco " + sID,
 			Entity: UserJSON{
-				ID:   user.ID,
-				Name: user.Name,
+				ID:    user.ID,
+				Name:  user.Name,
+				Admin: user.Admin,
 			},
 		},
 	}
@@ -234,8 +235,9 @@ func (a *front) AboutMe(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "uzanto",
 		Entity: UserJSON{
-			ID:   user.ID,
-			Name: user.Name,
+			ID:    user.ID,
+			Name:  user.Name,
+			Admin: user.Admin,
 		},
 	}
 }

@@ -1,6 +1,7 @@
 <script setup>
 import { RouterView } from 'vue-router'
 import Side from './components/Side.vue'
+import Top from './components/Top.vue'
 import LoginView from '@/views/LoginView.vue'
 import { useApp } from '@/stores/app'
 
@@ -9,9 +10,18 @@ const app = useApp()
 
 <template>
   <template v-if="app.isReady">
-    <div v-if="app.session.isLoggedIn" id="normal">
+    <div v-if="app.session.isLoggedIn && app.session.admin" id="admin">
       <header>
         <Side title="skribserv" />
+      </header>
+
+      <main>
+        <RouterView />
+      </main>
+    </div>
+    <div v-if="app.session.isLoggedIn && !app.session.admin" id="user">
+      <header>
+        <Top title="skribserv" />
       </header>
 
       <main>
@@ -32,22 +42,31 @@ const app = useApp()
 </template>
 
 <style scoped>
-#normal {
+#admin {
   height: 100%;
   width: 100%;
 
   display: grid;
   grid-template-columns: 15em 1fr;
   gap: 0px 0.5em;
-
 }
 
-#normal > header {
+#admin > header {
   background-color: lightgrey;
   padding: .5em;
 }
 
-#normal > main {
+#admin > main {
+  overflow: auto;
+  padding: .5em;
+}
+
+#user > header {
+  background-color: lightgrey;
+  padding: .5em;
+}
+
+#user > main {
   overflow: auto;
   padding: .5em;
 }

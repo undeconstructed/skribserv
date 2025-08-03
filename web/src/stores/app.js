@@ -25,8 +25,24 @@ export const useApp = defineStore('the', () => {
   const isReady = ref(false)
   const session = ref({
     isLoggedIn: false,
-    user: null
+    user: null,
+    userID: null,
+    admin: false,
   })
+
+  const setSession = (user) => {
+    if (user) {
+      session.value.isLoggedIn = true
+      session.value.user_id = user.id
+      session.value.user = user.nomo
+      session.value.admin = user.admina
+    } else {
+      session.value.isLoggedIn = false
+      session.value.user_id = null
+      session.value.user = null
+      session.value.admin = false
+    }
+  }
 
   const cache = new Map()
 
@@ -36,12 +52,10 @@ export const useApp = defineStore('the', () => {
 
       if (res.status != 200) {
         setCookie('Seanco', '', -1)
-        session.value.isLoggedIn = false
-        session.value.user = null
+        setSession()
       } else {
         const json = await res.json()
-        session.value.isLoggedIn = true
-        session.value.user = json.ento.nomo
+        setSession(json.ento)
       }
     }
 
@@ -74,8 +88,7 @@ export const useApp = defineStore('the', () => {
       }
 
       const json = await res.json()
-      session.value.isLoggedIn = true
-      session.value.user = json.ento.nomo
+      setSession(json.ento)
 
       resolve(json.ento)
     })
@@ -84,8 +97,7 @@ export const useApp = defineStore('the', () => {
   const logout = () => {
     cache.clear()
     setCookie('Seanco', '', -1)
-    session.value.isLoggedIn = false
-    session.value.user = null
+    setSession()
   }
 
   const getEntity = async (path) => {

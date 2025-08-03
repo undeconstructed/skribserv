@@ -1,0 +1,65 @@
+@base=http://127.0.0.1:8088/api
+@user_id=u-mi857
+@course_id=k-svrgd
+###
+
+# ensaluti, kiel adminanto, ekhavi kuketon
+POST {{base}}/mi/ensaluti
+Content-Type: application/json
+
+{"retpoŝto":"admin","pasvorto":"admin"}
+
+# ensaluti, kiel uzanto, ekhavi kuketon
+POST {{base}}/mi/ensaluti
+Content-Type: application/json
+
+{"retpoŝto":"phil@example.com","pasvorto":"phil123"}
+
+# kontroli ĉu ensalutinta
+GET {{base}}/mi
+
+# listigi uzantojn
+GET {{base}}/uzantoj
+
+# krei uzanton
+POST {{base}}/uzantoj
+Content-Type: application/json
+
+{
+    "nomo": "phil",
+    "retpoŝto": "phil@example.com",
+    "pasvorto": "phil123"
+}
+
+# listigi kursojn
+GET {{base}}/kursoj
+
+# krei kurson
+POST {{base}}/kursoj
+Content-Type: application/json
+
+{
+    "posedanto": {
+        "id": "{{user_id}}"
+    },
+    "nomo": "kurso unu"
+}
+
+# vidi kursojn
+GET {{base}}/kursoj/{{course_id}}
+
+# vidi lecinojn de kurso
+GET {{base}}/kursoj/{{course_id}}/eroj
+
+# trovi kursojn de uzanto (en kiuj li estas lernanto)
+GET {{base}}/uzantoj/{{user_id}}/kursoj
+
+# aldoni iun al kurso
+POST {{base}}/kursoj/{{course_id}}/lernantoj
+Content-Type: application/json
+
+{
+    "uzanto": {
+        "id": "{{user_id}}"
+    }
+}
