@@ -394,7 +394,7 @@ func (a *front) PostLessons(ctx context.Context, r *http.Request) any {
 		return lib.ErrHTTPNotFound
 	}
 
-	uzanto := a.userFromContext(ctx)
+	user := a.userFromContext(ctx)
 
 	lesson1, err := DecodeBody(r, &LessonJSON{})
 	if err != nil {
@@ -410,7 +410,7 @@ func (a *front) PostLessons(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
-	if course.OwnerID != uzanto.ID {
+	if course.OwnerID != user.ID && !user.Admin {
 		return lib.ErrHTTPForbidden
 	}
 

@@ -23,12 +23,15 @@ function setCookie(cname, cvalue, exdays) {
 
 export const useApp = defineStore('the', () => {
   const isReady = ref(false)
+
   const session = ref({
     isLoggedIn: false,
     user: null,
     userID: null,
     admin: false,
   })
+
+  const courses = ref([])
 
   const setSession = (user) => {
     if (user) {
@@ -128,6 +131,17 @@ export const useApp = defineStore('the', () => {
     return e
   }
 
+  const loadCourses = async (all) => {
+    let e = await getEntity('/uzantoj/'+ session.value.user_id+'/kursoj')
+  
+    courses.value = e
+  }
+
+  const getCourses = () => {
+    loadCourses(session.value.admin)
+    return courses
+  }
+
   const createCourse = async (opts) => {
     const body = JSON.stringify(opts)
 
@@ -154,5 +168,5 @@ export const useApp = defineStore('the', () => {
     })
   }
 
-  return { isReady, session, login, logout, getEntity, createCourse }
+  return { isReady, session, login, logout, getEntity, courses, getCourses, createCourse }
 })

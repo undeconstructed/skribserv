@@ -20,12 +20,11 @@ const logout = () => {
 
 <template>
   <div class="wrapper">
-    <h1>{{ title }}</h1>
+    <h1><RouterLink to="/">{{ title }}</RouterLink></h1>
 
     <nav>
       <ul>
         <li>Vi: {{ app.session.user }}</li>
-        <li><RouterLink to="/">Hejmo</RouterLink></li>
         <li><button @click="logout">elsaluti</button></li>
       </ul>
     </nav>
@@ -33,4 +32,25 @@ const logout = () => {
 </template>
 
 <style scoped>
+.wrapper {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+}
+
+.wrapper h1 {
+  flex-grow: 2;
+}
+
+nav ul li {
+  display: inline;
+}
+
+nav ul li+li {
+  margin-left: .5em;
+}
+nav ul li+li::before {
+  content: "|";
+  margin-right: .5em;
+}
 </style>

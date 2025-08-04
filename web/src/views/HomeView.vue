@@ -7,7 +7,6 @@ const app = useApp()
 </script>
 
 <template>
-  <h1>Hejmo</h1>
   <template v-if="app.session.admin">
     <AdminHome />
   </template>
