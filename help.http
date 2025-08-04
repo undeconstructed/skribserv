@@ -51,6 +51,14 @@ GET {{base}}/kursoj/{{course_id}}
 # vidi lecinojn de kurso
 GET {{base}}/kursoj/{{course_id}}/eroj
 
+# krei lecionon en kurso
+POST {{base}}/kursoj/{{course_id}}/eroj
+Content-Type: application/json
+
+{
+    "nomo": "leciono du"
+}
+
 # trovi kursojn de uzanto (en kiuj li estas lernanto)
 GET {{base}}/uzantoj/{{user_id}}/kursoj
 
