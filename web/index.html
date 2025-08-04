@@ -15,9 +15,127 @@
   <script type="module" src="js/main.js"></script>
 </head>
 
-<body>
+<body class="loading">
 
-  <div id="header">skribserv</div>
+  <page-manager>
+    <span slot="title">skribserv</span>
+
+    <loading-page>
+      <p>bonvolu atendi...</p>
+    </loading-page>
+
+    <login-page>
+      <style>
+        .line {
+          padding: .5em;
+        }
+      </style>
+      <p>Ĉi tiu retejo ne estas multe sekura! Ne uzu gravan pasvorton.</p>
+      <form>
+        <div class="line">
+          <input name="user" type="email" placeholder="retpoŝto" required>
+        </div>
+        <div class="line">
+          <input name="pass" type="password" placeholder="pasvorto" required>
+        </div>
+        <div class="line submit">
+          <button type="submit">ensaluti</button>
+        </div>
+        <div class="line">
+          <p class="error"></p>
+        </div>
+      </form>
+    </login-page>
+
+    <main-page path="/" content="home-page">
+      <div data-name="home-page">
+        <h2>Hejmo</h2>
+        <p><a href="/$/miajkursoj">Miaj kursoj</a></p>
+        <p><a href="/$/kursoj/{id}">Kurso</a></p>
+      </div>
+    </main-page>
+
+    <my-courses path="/miajkursoj" page-title="miaj kursoj">
+    </my-courses>
+
+    <course-page path="/kursoj/{id}">
+      <div>text</div>
+    </course-page>
+
+    <div id="error">
+      <p class="msg"></p>
+      <p><a href="/$/">Hejmo</a></p>
+    </div>
+  </page-manager>
+
+  <template id="tmpl-page-manager">
+    <style>
+      .user {
+        display: none;
+      }
+
+      .logged-in .user {
+        display: block;
+      }
+
+      header {
+        margin: 0;
+        padding: 1em;
+        background-color: #ccc;
+        display: flex;
+        flex-flow: row nowrap;
+        align-items: center;
+      }
+      header h1 {
+        flex-grow: 1;
+      }
+      header .user > ul {
+        display: flex;
+        flex-flow: row nowrap;
+        list-style-type: none;
+      }
+      header .user > ul > *+* {
+        margin-left: 1em;
+      }
+      header .user > ul > *+*::before {
+        content: "|";
+        margin-right: 1em;
+      }
+
+      .content {
+        padding: .5em;
+      }
+    </style>
+    <div>
+      <header>
+        <h1><slot name="title"></slot></h1>
+        <div class="user"><ul><li class="username"></li><li><button>elsaluti</button></li></ul></div>
+      </header>
+
+      <div class="content">
+        <slot name="content"></slot>
+      </div>
+    </div>
+  </template>
+
+  <template id="tmpl-main-page">
+    <div class="content">
+      <slot name="content"></slot>
+    </div>
+  </template>
+
+  <template id="tmpl-my-courses">
+    <h2>Miaj kursoj</h2>
+    <div><slot name="list"></slot></div>
+    <p><a href="/$/">Hejmo</a></p>
+  </template>
+
+  <template id="tmpl-course-line">
+    <p>Name: <span data-id="nomo"></span>, ID: <span data-id="id"></span></p>
+    <p>Lessons:</p>
+    <div><slot name="list"></slot></div>
+    <hr>
+  </template>
 
 </body>
 

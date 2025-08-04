@@ -128,17 +128,6 @@ func main() {
 	// 	io.Copy(w, body)
 	// }))
 
-	corsMw := func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Add("Access-Control-Allow-Origin", "http://localhost:5173")
-			next(w, r)
-		}
-	}
-
-	mux.HandleFunc("OPTIONS /", corsMw(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
 	// app
 
 	theApp, err := app.New(db, log.Raw().With("so", "apo"))
@@ -148,15 +137,11 @@ func main() {
 	}
 
 	theApp.Mount(func(method, path string, handler http.HandlerFunc, mws ...lib.MiddlewareFunc) {
-		// if method != http.MethodOptions {
-		// 	mux.HandleFunc("OPTIONS /api"+path, corsMw(optionsHandler))
-		// }
-
 		for _, m := range mws {
 			handler = m(handler)
 		}
 
-		mux.HandleFunc(method+" /api"+path, corsMw(mw(handler)))
+		mux.HandleFunc(method+" /api"+path, mw(handler))
 	})
 
 	// serve

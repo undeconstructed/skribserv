@@ -61,6 +61,21 @@ func (a *back) getUser(ctx context.Context, id DBID) (*User, error) {
 	return user, nil
 }
 
+func (a *back) getUserByLogin(ctx context.Context, email, password string) (*User, error) {
+	user := &User{}
+
+	err := a.db.Find(ctx, user, where.Eq("email", email), where.Eq("password", password))
+	if err != nil {
+		if errors.Is(err, rel.ErrNotFound) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("db (read): %w", err)
+	}
+
+	return user, nil
+}
+
 func (a *back) getUserByEmail(ctx context.Context, email string) (*User, error) {
 	user := &User{}
 

@@ -42,7 +42,7 @@ Content-Type: application/json
     "posedanto": {
         "id": "{{user_id}}"
     },
-    "nomo": "kurso unu"
+    "nomo": "kurso du"
 }
 
 # vidi kursojn

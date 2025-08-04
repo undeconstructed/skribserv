@@ -1,5 +1,25 @@
 
-export function join (a, s, f) {
+export function setCookie(cname, cvalue, exdays) {
+  const d = new Date()
+  d.setTime(d.getTime() + (exdays * 24 * 60 * 60 * 1000))
+  let expires = "expires=" + d.toUTCString()
+  document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/"
+}
+
+export function getCookie(cname) {
+  let name = cname + '='
+  for (let c of document.cookie.split(';')) {
+    while (c.charAt(0) == ' ') {
+      c = c.substring(1)
+    }
+    if (c.indexOf(name) == 0) {
+      return c.substring(name.length)
+    }
+  }
+  return ''
+}
+
+export function join(a, s, f) {
   f = f || (e => e.toString())
   s = (s === null ? ',' : s)
   let size = a.length || a.size
@@ -32,6 +52,12 @@ export function mkel(tag, opts) {
       case 'text':
         e.textContent = opts.text
         break
+      case 'attrs':
+        let attrs = opts[opt]
+        for (let a in attrs) {
+          e.setAttribute(a, attrs[a])
+        }
+        break
       default:
         e[opt] = opts[opt]
     }
@@ -39,19 +65,19 @@ export function mkel(tag, opts) {
   return e
 }
 
-export function defer (delay, func, args) {
+export function defer(delay, func, args) {
   return setTimeout(function () {
     return func(...args)
   }, delay)
 }
 
-export function hook (src, event, options, func, args) {
+export function hook(src, event, options, func, args) {
   return src.addEventListener(event, function (e) {
     return func(e, ...args)
   }, options)
 }
 
-export function switchy (arg, opts) {
+export function switchy(arg, opts) {
   let o = opts[arg]
   if (!o) {
     o = opts['default']
@@ -65,11 +91,11 @@ export function switchy (arg, opts) {
   return o
 }
 
-export function select (parent, selector) {
+export function select(parent, selector) {
   return parent.querySelector(selector)
 }
 
-export function main (func) {
+export function main(func) {
   document.addEventListener('DOMContentLoaded', function() {
     func({
       window,

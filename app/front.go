@@ -167,8 +167,11 @@ func (a *front) Login(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
-	user, err := a.back.getUserByEmail(ctx, req.Email)
+	user, err := a.back.getUserByLogin(ctx, req.Email, req.Password)
 	if err != nil {
+		if errors.Is(err, rel.ErrNotFound) {
+			return lib.HTTPResponse{Status: http.StatusForbidden}
+		}
 		return err
 	}
 
@@ -248,15 +251,15 @@ func (a *front) GetUsers(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
-	el := make([]UserJSON, 0, len(users))
+	out := make([]UserJSON, 0, len(users))
 
 	for _, u := range users {
-		el = append(el, apiFromUser(u))
+		out = append(out, apiFromUser(u))
 	}
 
 	return EntityResponse{
 		Message: "uzantoj",
-		Entity:  el,
+		Entity:  out,
 	}
 }
 
@@ -307,15 +310,15 @@ func (a *front) GetCourses(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
-	el := make([]CourseJSON, 0, len(courses))
+	out := make([]CourseJSON, 0, len(courses))
 
 	for _, k := range courses {
-		el = append(el, apiFromCourse(k))
+		out = append(out, apiFromCourse(k))
 	}
 
 	return EntityResponse{
 		Message: "courses",
-		Entity:  el,
+		Entity:  out,
 	}
 }
 
@@ -368,6 +371,7 @@ func apiFromCourse(en *Course) CourseJSON {
 			ID:   en.OwnerX.ID,
 			Name: en.OwnerX.Name,
 		},
+		Time: en.Time,
 	}
 }
 
@@ -382,9 +386,26 @@ func (a *front) GetLessons(ctx context.Context, r *http.Request) any {
 		return err
 	}
 
+	out := make([]LessonJSON, 0, len(lessons))
+
+	for _, k := range lessons {
+		out = append(out, apiFromLesson(k))
+	}
+
 	return EntityResponse{
 		Message: "kurseroj de " + courseID,
-		Entity:  lessons,
+		Entity:  out,
+	}
+}
+
+func apiFromLesson(en *Lesson) LessonJSON {
+	return LessonJSON{
+		ID: en.ID,
+		Course: CourseJSON{
+			ID: en.Course,
+		},
+		Name: en.Name,
+		Time: en.Time,
 	}
 }
 
