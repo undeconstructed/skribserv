@@ -23,6 +23,7 @@ func MigrateCreateInitial(schema *rel.Schema) {
 		t.String("id", rel.Primary(true))
 		t.String("owner", rel.Required(true))
 		t.String("name", rel.Required(true))
+		t.String("about", rel.Required(true))
 
 		t.DateTime("time", rel.Required(true))
 

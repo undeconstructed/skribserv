@@ -7,7 +7,7 @@ import (
 )
 
 type Session struct {
-	user *User
+	user User
 }
 
 type Authenticator struct {
@@ -21,7 +21,7 @@ func NewAuthenticator() *Authenticator {
 	}
 }
 
-func (ai *Authenticator) putSession(user *User) (string, error) {
+func (ai *Authenticator) putSession(user User) (string, error) {
 	id := lib.MakeRandomID("seanco", 10)
 
 	ai.Lock()
@@ -41,7 +41,7 @@ func (ai *Authenticator) getSessionUser(id string) (*User, error) {
 		return nil, ErrNoSession
 	}
 
-	return u.user, nil
+	return &u.user, nil
 }
 
 func (ai *Authenticator) deleteSession(id string) {

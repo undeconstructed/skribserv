@@ -25,6 +25,7 @@ type Course struct {
 	OwnerID DBID `db:"owner"`
 	OwnerX  User `ref:"owner" fk:"id"`
 	Name    string
+	About   string
 	Time    time.Time
 
 	Lessons []Lesson `ref:"id" fk:"course"`

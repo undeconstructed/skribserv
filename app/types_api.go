@@ -19,6 +19,7 @@ type CourseJSON struct {
 	ID    DBID      `json:"id"`
 	Owner UserJSON  `json:"posedanto,omitzero"`
 	Name  string    `json:"nomo,omitzero"`
+	About string    `json:"pri,omitzero"`
 	Time  time.Time `json:"kiamo,omitzero"`
 }
 

@@ -25,9 +25,8 @@ func WithLogValue(parent context.Context, key string, val any) context.Context {
 	return slogcontext.WithValue(parent, key, val)
 }
 
-// WithLogValues would merge the log fields from contexts if that were possible
-// func WithLogValues(ctx context.Context, ctx1 context.Context) context.Context {
-// }
+// MakeContextLogger can apply a context to an existing logger
+type MakeContextLogger func(context.Context) *Logger
 
 // Logger provides an easy way to access a logger with a particular context built in.
 // This allows to call the short names e.g. `Debug` instead of `DebugContext`.
@@ -36,16 +35,31 @@ type Logger struct {
 	ctx context.Context
 }
 
+// Log wraps an [slog.Logger] and a context, so that all logging will use that context.
 func Log(log *slog.Logger, ctx context.Context) *Logger {
 	return &Logger{log, ctx}
 }
 
+// SubLog makes a [MakeLogger] function.
+func SubLog(log *slog.Logger) MakeContextLogger {
+	return func(ctx context.Context) *Logger {
+		return Log(log, ctx)
+	}
+}
+
+// DefaultLog is [Log] with [slog.Default].
 func DefaultLog(ctx context.Context) *Logger {
 	return Log(slog.Default(), ctx)
 }
 
+// Raw strips the context, going back to an [slog.Logger].
 func (log *Logger) Raw() *slog.Logger {
 	return log.raw
+}
+
+// Sub is a [MakeContextLogger] function, based on the underlying [slog.Logger].
+func (log *Logger) Sub(ctx context.Context) *Logger {
+	return Log(log.raw, ctx)
 }
 
 func (log *Logger) Debug(msg string, args ...any) {

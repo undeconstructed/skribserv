@@ -15,7 +15,7 @@ import (
 type front struct {
 	back  *back
 	ident *Authenticator
-	log   func(context.Context) *lib.Logger
+	log   lib.MakeContextLogger
 }
 
 func (a *front) Mount(mux lib.Router) {
@@ -94,7 +94,7 @@ func (a *front) identify(next http.HandlerFunc) http.HandlerFunc {
 					return nil, lib.ErrHTTPUnauthorized
 				}
 
-				return user, nil
+				return &user, nil
 			}
 
 			return nil, nil
@@ -127,9 +127,7 @@ func (a *front) identify(next http.HandlerFunc) http.HandlerFunc {
 
 func (a *front) forAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-
-		u := a.userFromContext(ctx)
+		u := a.userFromContext(r.Context())
 
 		if !u.Admin {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPForbidden)
@@ -142,10 +140,9 @@ func (a *front) forAdmin(next http.HandlerFunc) http.HandlerFunc {
 
 func (a *front) forAdminOrSelf(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
 		userID := r.PathValue("user")
 
-		u := a.userFromContext(ctx)
+		u := a.userFromContext(r.Context())
 
 		if !u.Admin && u.ID != DBID(userID) {
 			lib.SendHTTPError(w, 0, lib.ErrHTTPForbidden)
@@ -264,19 +261,23 @@ func (a *front) GetUsers(ctx context.Context, r *http.Request) any {
 }
 
 func (a *front) PostUsers(ctx context.Context, r *http.Request) any {
-	user1, err := DecodeBody(r, &UserJSON{})
+	user0, err := DecodeBody(r, &UserJSON{})
 	if err != nil {
 		return err
 	}
 
-	user2, err := a.back.putUser(ctx, "", user1.Name, user1.Email, user1.Password)
+	user1, err := a.back.putUser(ctx, User{
+		Name:     user0.Name,
+		Email:    user0.Email,
+		Password: user0.Password,
+	})
 	if err != nil {
 		return err
 	}
 
 	return EntityResponse{
 		Message: "nova uzanto",
-		Entity:  apiFromUser(user2),
+		Entity:  apiFromUser(user1),
 	}
 }
 
@@ -297,10 +298,10 @@ func (a *front) GetUser(ctx context.Context, r *http.Request) any {
 	}
 }
 
-func apiFromUser(en *User) UserJSON {
+func apiFromUser(in User) UserJSON {
 	return UserJSON{
-		ID:   en.ID,
-		Name: en.Name,
+		ID:   in.ID,
+		Name: in.Name,
 	}
 }
 
@@ -325,24 +326,29 @@ func (a *front) GetCourses(ctx context.Context, r *http.Request) any {
 func (a *front) PostCourses(ctx context.Context, r *http.Request) any {
 	user := a.userFromContext(ctx)
 
-	course1, err := DecodeBody(r, &CourseJSON{})
+	course0, err := DecodeBody(r, &CourseJSON{})
 	if err != nil {
 		return err
 	}
 
-	owner := course1.Owner.ID
+	owner := course0.Owner.ID
 	if owner == "" {
 		owner = user.ID
 	}
 
-	course2, err := a.back.putCourse(ctx, "", owner, course1.Name, course1.Time)
+	course1, err := a.back.putCourse(ctx, Course{
+		OwnerID: owner,
+		Name:    course0.Name,
+		About:   course0.About,
+		Time:    course0.Time,
+	})
 	if err != nil {
 		return err
 	}
 
 	return EntityResponse{
 		Message: "nova kurso",
-		Entity:  apiFromCourse(course2),
+		Entity:  apiFromCourse(course1),
 	}
 }
 
@@ -363,15 +369,16 @@ func (a *front) GetCourse(ctx context.Context, r *http.Request) any {
 	}
 }
 
-func apiFromCourse(en *Course) CourseJSON {
+func apiFromCourse(in Course) CourseJSON {
 	return CourseJSON{
-		ID:   en.ID,
-		Name: en.Name,
+		ID: in.ID,
 		Owner: UserJSON{
-			ID:   en.OwnerX.ID,
-			Name: en.OwnerX.Name,
+			ID:   in.OwnerX.ID,
+			Name: in.OwnerX.Name,
 		},
-		Time: en.Time,
+		Name:  in.Name,
+		About: in.About,
+		Time:  in.Time,
 	}
 }
 
@@ -398,14 +405,14 @@ func (a *front) GetLessons(ctx context.Context, r *http.Request) any {
 	}
 }
 
-func apiFromLesson(en *Lesson) LessonJSON {
+func apiFromLesson(in Lesson) LessonJSON {
 	return LessonJSON{
-		ID: en.ID,
+		ID: in.ID,
 		Course: CourseJSON{
-			ID: en.Course,
+			ID: in.Course,
 		},
-		Name: en.Name,
-		Time: en.Time,
+		Name: in.Name,
+		Time: in.Time,
 	}
 }
 
@@ -417,12 +424,12 @@ func (a *front) PostLessons(ctx context.Context, r *http.Request) any {
 
 	user := a.userFromContext(ctx)
 
-	lesson1, err := DecodeBody(r, &LessonJSON{})
+	lesson0, err := DecodeBody(r, &LessonJSON{})
 	if err != nil {
 		return err
 	}
 
-	if lesson1.Course.ID != "" && lesson1.Course.ID != DBID(courseID) {
+	if lesson0.Course.ID != "" && lesson0.Course.ID != DBID(courseID) {
 		return lib.ErrHTTPBadRequest
 	}
 
@@ -435,7 +442,11 @@ func (a *front) PostLessons(ctx context.Context, r *http.Request) any {
 		return lib.ErrHTTPForbidden
 	}
 
-	lesson2, err := a.back.putLesson(ctx, "", course.ID, lesson1.Name, lesson1.Time)
+	lesson1, err := a.back.putLesson(ctx, Lesson{
+		Course: course.ID,
+		Name:   lesson0.Name,
+		Time:   lesson0.Time,
+	})
 	if err != nil {
 		return err
 	}
@@ -443,8 +454,8 @@ func (a *front) PostLessons(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "nova kursero",
 		Entity: LessonJSON{
-			ID:   lesson2.ID,
-			Name: lesson2.Name,
+			ID:   lesson1.ID,
+			Name: lesson1.Name,
 			Course: CourseJSON{
 				ID: course.ID,
 			},
@@ -508,16 +519,16 @@ func (a *front) PostLearners(ctx context.Context, r *http.Request) any {
 		return lib.ErrHTTPNotFound
 	}
 
-	learner1, err := DecodeBody(r, &LearnerJSON{})
+	learner0, err := DecodeBody(r, &LearnerJSON{})
 	if err != nil {
 		return err
 	}
 
-	if learner1.Course.ID != "" && learner1.Course.ID != DBID(courseID) {
+	if learner0.Course.ID != "" && learner0.Course.ID != DBID(courseID) {
 		return lib.ErrHTTPBadRequest
 	}
 
-	learner2, err := a.back.putLearner(ctx, "", learner1.User.ID, DBID(courseID))
+	learner1, err := a.back.addUserToCourse(ctx, learner0.User.ID, DBID(courseID))
 	if err != nil {
 		return err
 	}
@@ -525,12 +536,12 @@ func (a *front) PostLearners(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "nova lernanto",
 		Entity: LearnerJSON{
-			ID: learner2.ID,
+			ID: learner1.ID,
 			User: UserJSON{
-				ID: learner2.UserID,
+				ID: learner1.UserID,
 			},
 			Course: CourseJSON{
-				ID: learner2.CourseID,
+				ID: learner1.CourseID,
 			},
 		},
 	}
@@ -554,11 +565,7 @@ func (a *front) GetCoursesForUser(ctx context.Context, r *http.Request) any {
 	out := make([]CourseJSON, 0, len(courses))
 
 	for _, l := range courses {
-		out = append(out, CourseJSON{
-			ID:   l.CourseID,
-			Name: l.CourseX.Name,
-			Time: l.CourseX.Time,
-		})
+		out = append(out, apiFromCourse(l.CourseX))
 	}
 
 	return EntityResponse{
@@ -579,25 +586,20 @@ func (a *front) PostHomework(ctx context.Context, r *http.Request) any {
 		return lib.ErrHTTPForbidden
 	}
 
-	dec := json.NewDecoder(r.Body)
-
-	homework1 := &HomeworkJSON{}
-	err := dec.Decode(homework1)
+	homework0, err := DecodeBody(r, &HomeworkJSON{})
 	if err != nil {
 		return err
 	}
 
-	if homework1.Learner.ID != "" && homework1.Learner.ID != user.ID {
+	if homework0.Learner.ID != "" && homework0.Learner.ID != user.ID {
 		return lib.ErrHTTPForbidden
 	}
 
-	if homework1.Text == "" {
+	if homework0.Text == "" {
 		return fmt.Errorf("%w: mankas teksto", lib.ErrHTTPBadRequest)
 	}
 
-	learner := user.ID
-
-	homework, err := a.back.putHomework(ctx, "", learner, homework1.Text)
+	homework1, err := a.back.putHomework(ctx, user.ID, homework0.Text)
 	if err != nil {
 		return err
 	}
@@ -605,11 +607,11 @@ func (a *front) PostHomework(ctx context.Context, r *http.Request) any {
 	return EntityResponse{
 		Message: "nova hejmtasko",
 		Entity: HomeworkJSON{
-			ID: homework.ID,
+			ID: homework1.ID,
 			Learner: UserJSON{
-				ID: homework.LearnerID,
+				ID: homework1.LearnerID,
 			},
-			Text: homework.Text,
+			Text: homework1.Text,
 		},
 	}
 }

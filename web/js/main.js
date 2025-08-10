@@ -1,14 +1,6 @@
-import { main, mkel, setCookie, getCookie } from './util.js'
+import { PageManagerElement, PageElement, mkel, setCookie, getCookie } from './util.js'
 
-class PageElement extends HTMLElement {
-  manager() {
-    return this.closest('page-manager')
-  }
-}
-
-customElements.define('page-manager', class extends HTMLElement {
-  #title
-  #paths
+customElements.define('page-manager', class extends PageManagerElement {
   #state
   #cache
 
@@ -22,53 +14,16 @@ customElements.define('page-manager', class extends HTMLElement {
     this.#state = {
       ready: false,
       user: null,
-      admin: null,
-      courses: null // [{"id": "k-123", "nomo": "kurso unu"}, {"id": "k-456", "nomo": "kurso du"}],
+      admin: false,
+      courses: null // [{"id": "k-123", "nomo": "kurso unu", "lessons": []}, {"id": "k-456", "nomo": "kurso du", "lessons": []}],
     }
-  }
-
-  async getCourses() {
-    let res = await this.getEntity('/uzantoj/' + this.#state.user.id + '/kursoj')
-
-    this.#state.courses = res
-
-    return this.#state.courses
-  }
-
-  async getCourse(id) {
-    let courses = await this.getCourses()
-
-    return courses.find(e => e.id == id)
-  }
-
-  async getLessons(courseID) {
-    let course = await this.getCourse(courseID)
-
-    let res = await this.getEntity('/kursoj/' + course.id + '/eroj')
-
-    course.lessons = res
-
-    return course.lessons
   }
 
   connectedCallback() {
-    this.#title = document.title
-
-    this.#paths = new Map()
-    for (let c of this.querySelectorAll('[path]')) {
-      this.#paths.set(c.getAttribute('path'), c)
-    }
-
-    window.addEventListener('popstate', e => {
-      console.log(e)
-      this.showPage(this.parseHarsh(), true)
-    })
-
-    const template = document.getElementById('tmpl-page-manager')
-    const templateContent = template.content
+    super.connectedCallback()
 
     this.attachShadow({ mode: 'open' }).appendChild(
-      templateContent.cloneNode(true)
+      document.getElementById('tmpl-page-manager').content.cloneNode(true)
     )
 
     this.shadowRoot.querySelector('.user button').addEventListener('click', e => {
@@ -107,85 +62,6 @@ customElements.define('page-manager', class extends HTMLElement {
     this.shadowRoot.querySelector('div').classList.add('logged-in')
 
     this.showPage(this.parseHarsh(), true)
-  }
-
-  fixLinks(top) {
-    if (!top) return
-
-    for (let link of top.querySelectorAll('a[href*="/$/"]')) {
-      let m = link.href.match(/\/\$(\/.*)/)
-      if (m) {
-        let to = m[1]
-        if (!to.startsWith('/')) {
-          to = '/' + to
-        }
-        if (to != '/') {
-          link.href = '/#' + to
-        }
-        link.addEventListener('click', e => {
-          e.preventDefault()
-          this.showPage(to)
-        })
-      }
-    }
-  }
-
-  parseHarsh() {
-    let hash = URL.parse(window.location.href).hash
-    if (hash.startsWith('#/')) {
-      hash = hash.substring(1)
-    } else {
-      hash = '/'
-    }
-    return hash
-  }
-
-  route(path) {
-    return this.#paths.get(path)
-  }
-  
-  showPage(path, replace) {
-    let c = this.route(path)
-
-    if (path != '/') {
-      path = '/#' + path
-    }
-
-    if (replace) history.replaceState({}, '', path)
-    else history.pushState({}, '', path)
-
-    this.swapPage(c)
-  }
-
-  swapPage(to, notitle) {
-    if (this.open) {
-      this.open.removeAttribute('slot')
-    }
-
-    if (typeof to == 'string') {
-      to = this.querySelector(to)
-    }
-
-    if (!to) {
-      to = this.querySelector('#error')
-      to.setAttribute('page-title', '404')
-      to.querySelector('.msg').textContent = '404'
-    }
-
-    if (!notitle) {
-      if (this.route('/') === to) {
-        document.title = this.#title
-      } else {
-        let title = (to.pageTitle && to.pageTitle()) || to.getAttribute('page-title') || to.tagName
-        document.title = this.#title + ' - ' + title
-      }
-    }
-
-    this.open = to
-    this.open.setAttribute('slot', 'content')
-
-    this.fixLinks(this.open)
-    this.fixLinks(this.open.shadowRoot)
   }
 
   async login(name, pass) {
@@ -230,6 +106,30 @@ customElements.define('page-manager', class extends HTMLElement {
     this.swapPage('login-page', true)
   }
 
+  async getCourses() {
+    let res = await this.getEntity('/uzantoj/' + this.#state.user.id + '/kursoj')
+
+    this.#state.courses = res
+
+    return this.#state.courses
+  }
+
+  async getCourse(id) {
+    let courses = await this.getCourses()
+
+    return courses.find(e => e.id == id)
+  }
+
+  async getLessons(courseID) {
+    let course = await this.getCourse(courseID)
+
+    let res = await this.getEntity('/kursoj/' + course.id + '/eroj')
+
+    course.lessons = res
+
+    return course.lessons
+  }
+
   async getEntity(path) {
     let e = this.#cache.get(path)
 
@@ -260,9 +160,6 @@ customElements.define('page-manager', class extends HTMLElement {
 })
 
 customElements.define('loading-page', class extends PageElement {
-  connectedCallback() {
-    console.log('connected', this)
-  }
 })
 
 customElements.define('login-page', class extends HTMLElement {
@@ -291,11 +188,8 @@ customElements.define('login-page', class extends HTMLElement {
 
 customElements.define('main-page', class extends HTMLElement {
   connectedCallback() {
-    const template = document.getElementById('tmpl-main-page')
-    const templateContent = template.content
-
     this.attachShadow({ mode: 'open' }).appendChild(
-      templateContent.cloneNode(true)
+      document.getElementById('tmpl-main-page').content.cloneNode(true)
     )
 
     let content = document.querySelector(`[data-name="${this.getAttribute('content')}"]`)
@@ -304,26 +198,19 @@ customElements.define('main-page', class extends HTMLElement {
   }
 })
 
-customElements.define('my-courses', class extends PageElement {
-  static observedAttributes = ['slot']
-
+customElements.define('my-courses-page', class extends PageElement {
   #courseList
 
   connectedCallback() {
     this.courseList = mkel('div', { attrs: { 'slot': 'list' } })
     this.append(this.courseList)
 
-    const template = document.getElementById('tmpl-my-courses')
-    const templateContent = template.content
-
     this.attachShadow({ mode: 'open' }).appendChild(
-      templateContent.cloneNode(true)
+      document.getElementById('tmpl-my-courses-page').content.cloneNode(true)
     )
   }
 
-  async attributeChangedCallback(name, oldValue, newValue) {
-    if (name != 'slot' || !newValue) return
-
+  async onShow() {
     this.courseList.replaceChildren()
 
     let courses = await this.manager().getCourses()
@@ -338,34 +225,87 @@ customElements.define('course-line', class extends PageElement {
   #lessonList
 
   async connectedCallback() {
-    this.lessonList = mkel('div', { attrs: { 'slot': 'list' } })
-    this.append(this.lessonList)
-
-    const template = document.getElementById('tmpl-course-line')
-    const templateContent = template.content
+    this.#lessonList = mkel('div', { attrs: { 'slot': 'list' } })
+    this.append(this.#lessonList)
 
     this.attachShadow({ mode: 'open' }).appendChild(
-      templateContent.cloneNode(true)
+      document.getElementById('tmpl-course-line').content.cloneNode(true)
     )
-
-    this.lessonList.replaceChildren()
 
     let course = await this.manager().getCourse(this.courseID)
 
-    for (let e of this.shadowRoot.querySelectorAll('[data-id]')) {
-      let did = e.getAttribute('data-id')
-      e.textContent = course[did]
-    }
+    this.setData(course)
 
     let lessons = await this.manager().getLessons(course.id)
 
-    this.lessonList.append(
+    this.#lessonList.append(
       ...lessons.map(e => mkel('p', { text: `${e.nomo} (${e.id})` }))
     )
   }
 })
 
+customElements.define('courses-page', class extends PageElement {
+  #courseList
+
+  connectedCallback() {
+    this.courseList = mkel('div', { attrs: { 'slot': 'list' } })
+    this.append(this.courseList)
+
+    this.attachShadow({ mode: 'open' }).appendChild(
+      document.getElementById('tmpl-courses-page').content.cloneNode(true)
+    )
+  }
+
+  async onShow() {
+    this.courseList.replaceChildren()
+
+    let courses = await this.manager().getCourses()
+
+    this.courseList.append(
+      ...courses.map(e => mkel('course-line-2', { courseID: e.id }))
+    )
+  }
+})
+
+customElements.define('course-line-2', class extends PageElement {
+  async connectedCallback() {
+    this.attachShadow({ mode: 'open' }).innerHTML = `
+      <p><a href="/$/kursoj/${this.courseID}" data-id="nomo"></a> - <spab data-id="pri"></span></p>
+    `
+
+    let course = await this.manager().getCourse(this.courseID)
+
+    this.setData(course)
+    this.manager().fixLinks(this.shadowRoot)
+  }
+})
+
 customElements.define('course-page', class extends PageElement {
+  #courseID
+  #lessonList
+
+  async connectedCallback() {
+    this.#lessonList = mkel('div', { attrs: { 'slot': 'list' } })
+    this.append(this.#lessonList)
+
+    this.attachShadow({ mode: 'open' }).appendChild(
+      document.getElementById('tmpl-course-page').content.cloneNode(true)
+    )
+  }
+
+  async onShow() {
+    this.#courseID = this.getAttribute('course-id')
+
+    let course = await this.manager().getCourse(this.#courseID)
+
+    this.setData(course)
+
+    let lessons = await this.manager().getLessons(course.id)
+
+    this.#lessonList.append(
+      ...lessons.map(e => mkel('p', { text: `${e.nomo} (${e.id})` }))
+    )
+  }
 })
 
 customElements.define('data-block', class extends PageElement {

@@ -51,15 +51,17 @@
       <div data-name="home-page">
         <h2>Hejmo</h2>
         <p><a href="/$/miajkursoj">Miaj kursoj</a></p>
-        <p><a href="/$/kursoj/{id}">Kurso</a></p>
+        <p><a href="/$/kursoj">Ĉiuj kursoj</a></p>
       </div>
     </main-page>
 
-    <my-courses path="/miajkursoj" page-title="miaj kursoj">
-    </my-courses>
+    <my-courses-page path="/miajkursoj" page-title="miaj kursoj">
+    </my-courses-page>
 
-    <course-page path="/kursoj/{id}">
-      <div>text</div>
+    <courses-page path="/kursoj" page-title="kursoj">
+    </courses-page>
+
+    <course-page path="/kursoj/{course-id}">
     </course-page>
 
     <div id="error">
@@ -69,6 +71,7 @@
   </page-manager>
 
   <template id="tmpl-page-manager">
+    <link rel="stylesheet" href="css/bootstrap-reboot.css">
     <style>
       .user {
         display: none;
@@ -93,6 +96,7 @@
         display: flex;
         flex-flow: row nowrap;
         list-style-type: none;
+        margin: 0;
       }
       header .user > ul > *+* {
         margin-left: 1em;
@@ -119,21 +123,47 @@
   </template>
 
   <template id="tmpl-main-page">
+    <link rel="stylesheet" href="css/bootstrap-reboot.css">
     <div class="content">
       <slot name="content"></slot>
     </div>
   </template>
 
-  <template id="tmpl-my-courses">
+  <template id="tmpl-course-page">
+    <link rel="stylesheet" href="css/bootstrap-reboot.css">
+    <h2 data-id="nomo"></h2>
+    <p data-id="pri"></p>
+    <p>Lecionoj:</p>
+    <div><slot name="list"></slot></div>
+    <p><a href="/$/">Hejmo</a></p>
+  </template>
+
+  <template id="tmpl-courses-page">
+    <link rel="stylesheet" href="css/bootstrap-reboot.css">
+    <h2>Kursoj</h2>
+    <div><slot name="list"></slot></div>
+    <p><a href="/$/">Hejmo</a></p>
+  </template>
+
+  <template id="tmpl-my-courses-page">
+    <link rel="stylesheet" href="css/bootstrap-reboot.css">
     <h2>Miaj kursoj</h2>
     <div><slot name="list"></slot></div>
     <p><a href="/$/">Hejmo</a></p>
   </template>
 
   <template id="tmpl-course-line">
-    <p>Name: <span data-id="nomo"></span>, ID: <span data-id="id"></span></p>
-    <p>Lessons:</p>
-    <div><slot name="list"></slot></div>
+    <link rel="stylesheet" href="css/bootstrap-reboot.css">
+    <style>
+      .lessons {
+        display: none;
+      }
+    </style>
+    <p>😀 <span data-id="nomo"></span> - <span data-id="pri"></span></p>
+    <div class="lessons">
+      <p>Lecionoj:</p>
+      <div><slot name="list"></slot></div>
+    </div>
     <hr>
   </template>
 

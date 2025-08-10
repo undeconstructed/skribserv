@@ -42,6 +42,8 @@ func makeWebFS(devMode bool) (fs.FS, error) {
 }
 
 func main() {
+	ctx := context.Background()
+
 	devMode := flag.Bool("dev-mode", false, "whether run from source")
 
 	flag.Parse()
@@ -71,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("config", "path", path, "dev-mode", *devMode, "bind", config.ListenAddr)
+	log.Info("config", "path", path, "dev-mode", *devMode, "bind", config.ListenAddr)
 
 	// db
 
@@ -103,36 +105,17 @@ func main() {
 		http.ServeFileFS(w, r, files, r.URL.Path)
 	}))
 
-	// mux.HandleFunc("GET /", mw(func(w http.ResponseWriter, r *http.Request) {
-	// 	x := *r.URL
-	// 	f := &x
-	// 	f.Scheme = "http"
-	// 	f.Host = "localhost:5173"
-
-	// 	rf, err := http.Get(f.String())
-	// 	if err != nil {
-	// 		log.Error("proxy", "err", err)
-	// 		w.WriteHeader(http.StatusInternalServerError)
-	// 		return
-	// 	}
-
-	// 	for k, v := range rf.Header {
-	// 		w.Header().Add(k, v[0])
-	// 	}
-
-	// 	w.WriteHeader(rf.StatusCode)
-
-	// 	body := rf.Body
-	// 	defer body.Close()
-
-	// 	io.Copy(w, body)
-	// }))
-
 	// app
 
-	theApp, err := app.New(db, log.Raw().With("so", "apo"))
+	theApp, err := app.New(db, log.Raw().With("so", "app"))
 	if err != nil {
-		log.Error("make api", "err", err)
+		log.Error("make app", "err", err)
+		os.Exit(1)
+	}
+
+	_, err = theApp.EnsureAdmin(ctx, "password")
+	if err != nil {
+		log.Error("ensure admin", "err", err)
 		os.Exit(1)
 	}
 

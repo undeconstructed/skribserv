@@ -1,13 +1,13 @@
 @base=http://127.0.0.1:8088/api
-@user_id=u-mi857
-@course_id=k-svrgd
+@user_id=u-3zmc4
+@course_id=k-ghpnd
 ###
 
 # ensaluti, kiel adminanto, ekhavi kuketon
 POST {{base}}/mi/ensaluti
 Content-Type: application/json
 
-{"retpoŝto":"admin","pasvorto":"admin"}
+{"retpoŝto":"admin@admin","pasvorto":"password"}
 
 # ensaluti, kiel uzanto, ekhavi kuketon
 POST {{base}}/mi/ensaluti
@@ -42,7 +42,7 @@ Content-Type: application/json
     "posedanto": {
         "id": "{{user_id}}"
     },
-    "nomo": "kurso du"
+    "nomo": "kurso tri"
 }
 
 # vidi kursojn
@@ -56,7 +56,8 @@ POST {{base}}/kursoj/{{course_id}}/eroj
 Content-Type: application/json
 
 {
-    "nomo": "leciono du"
+    "nomo": "leciono unu",
+    "pri": "ĉi tio estas kurso pri aferoj"
 }
 
 # trovi kursojn de uzanto (en kiuj li estas lernanto)

@@ -4,20 +4,59 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/go-rel/rel"
 	"github.com/go-rel/rel/where"
 	"github.com/undeconstructed/skribserv/lib"
 )
 
+const adminEmail = "admin@admin"
+
 type back struct {
 	db  rel.Repository
-	log func(context.Context) *lib.Logger
+	log lib.MakeContextLogger
 }
 
-func (a *back) listUsers(ctx context.Context) ([]*User, error) {
-	var out []*User
+func (a *back) EnsureAdmin(ctx context.Context, password string) (User, error) {
+	user := &User{}
+
+	err := a.db.Find(ctx, user, where.Eq("email", adminEmail))
+	if err != nil {
+		if errors.Is(err, rel.ErrNotFound) {
+			user1, err := a.putUser(ctx, User{
+				Name:     "Admin User",
+				Email:    adminEmail,
+				Password: password,
+				Admin:    true,
+			})
+			if err != nil {
+				return User{}, err
+			}
+
+			a.log(ctx).Info("created admin user")
+
+			return user1, nil
+		}
+
+		return User{}, fmt.Errorf("db (read): %w", err)
+	}
+
+	if user.Password == password {
+		return *user, nil
+	}
+
+	err = a.db.Update(ctx, user, rel.Set("password", password))
+	if err != nil {
+		return User{}, fmt.Errorf("db (write): %w", err)
+	}
+
+	a.log(ctx).Info("reset admin password")
+
+	return *user, nil
+}
+
+func (a *back) listUsers(ctx context.Context) ([]User, error) {
+	var out []User
 
 	err := a.db.FindAll(ctx, &out)
 	if err != nil {
@@ -27,72 +66,65 @@ func (a *back) listUsers(ctx context.Context) ([]*User, error) {
 	return out, nil
 }
 
-func (a *back) putUser(ctx context.Context, id DBID, name, email, password string) (*User, error) {
-	if id == "" {
-		id = makeRandomID("u", 5)
+func (a *back) putUser(ctx context.Context, user0 User) (User, error) {
+	if user0.ID == "" {
+		user0.ID = makeRandomID("u", 5)
 	}
 
-	user1 := &User{
-		ID:       id,
-		Name:     name,
-		Email:    email,
-		Password: password,
+	if err := a.db.Insert(ctx, &user0); err != nil {
+		return User{}, err
 	}
 
-	if err := a.db.Insert(ctx, user1); err != nil {
-		return nil, err
-	}
-
-	return user1, nil
+	return user0, nil
 }
 
-func (a *back) getUser(ctx context.Context, id DBID) (*User, error) {
+func (a *back) getUser(ctx context.Context, id DBID) (User, error) {
 	user := &User{}
 
 	err := a.db.Find(ctx, user, where.Eq("id", id))
 	if err != nil {
 		if errors.Is(err, rel.ErrNotFound) {
-			return nil, err
+			return User{}, err
 		}
 
-		return nil, fmt.Errorf("db (read): %w", err)
+		return User{}, fmt.Errorf("db (read): %w", err)
 	}
 
-	return user, nil
+	return *user, nil
 }
 
-func (a *back) getUserByLogin(ctx context.Context, email, password string) (*User, error) {
+func (a *back) getUserByLogin(ctx context.Context, email, password string) (User, error) {
 	user := &User{}
 
 	err := a.db.Find(ctx, user, where.Eq("email", email), where.Eq("password", password))
 	if err != nil {
 		if errors.Is(err, rel.ErrNotFound) {
-			return nil, err
+			return User{}, err
 		}
 
-		return nil, fmt.Errorf("db (read): %w", err)
+		return User{}, fmt.Errorf("db (read): %w", err)
 	}
 
-	return user, nil
+	return *user, nil
 }
 
-func (a *back) getUserByEmail(ctx context.Context, email string) (*User, error) {
+func (a *back) getUserByEmail(ctx context.Context, email string) (User, error) {
 	user := &User{}
 
 	err := a.db.Find(ctx, user, where.Eq("email", email))
 	if err != nil {
 		if errors.Is(err, rel.ErrNotFound) {
-			return nil, err
+			return User{}, err
 		}
 
-		return nil, fmt.Errorf("db (read): %w", err)
+		return User{}, fmt.Errorf("db (read): %w", err)
 	}
 
-	return user, nil
+	return *user, nil
 }
 
-func (a *back) listCourses(ctx context.Context) ([]*Course, error) {
-	var out []*Course
+func (a *back) listCourses(ctx context.Context) ([]Course, error) {
+	var out []Course
 
 	err := a.db.FindAll(ctx, &out)
 	if err != nil {
@@ -102,64 +134,53 @@ func (a *back) listCourses(ctx context.Context) ([]*Course, error) {
 	return out, nil
 }
 
-func (a *back) putCourse(ctx context.Context, id DBID, owner DBID, name string, time time.Time) (*Course, error) {
-	if id == "" {
-		id = makeRandomID("k", 5)
+func (a *back) putCourse(ctx context.Context, course Course) (Course, error) {
+	if course.ID == "" {
+		course.ID = makeRandomID("k", 5)
 	}
 
-	course1 := &Course{
-		ID:      id,
-		Name:    name,
-		OwnerID: owner,
-		Time:    time,
-	}
-
-	if err := a.db.Insert(ctx, course1); err != nil {
-		return nil, err
-	}
-
-	return course1, nil
-}
-
-func (a *back) getCourse(ctx context.Context, id DBID) (*Course, error) {
-	course := &Course{}
-
-	err := a.db.Find(ctx, course, rel.Select("*", "owner_x.*").JoinAssoc("owner_x"), where.Eq("id", id))
-	if err != nil {
-		if errors.Is(err, rel.ErrNotFound) {
-			return nil, err
-		}
-
-		return nil, fmt.Errorf("db (read): %w", err)
-	}
-
-	if err := a.db.Preload(ctx, course, "lessons"); err != nil {
-		return nil, err
+	if err := a.db.Insert(ctx, &course); err != nil {
+		return Course{}, err
 	}
 
 	return course, nil
 }
 
-func (a *back) putLearner(ctx context.Context, id, user, course DBID) (*Learner, error) {
-	if id == "" {
-		id = makeRandomID("u", 5)
+func (a *back) getCourse(ctx context.Context, id DBID) (Course, error) {
+	course := &Course{}
+
+	err := a.db.Find(ctx, course, rel.Select("*", "owner_x.*").JoinAssoc("owner_x"), where.Eq("id", id))
+	if err != nil {
+		if errors.Is(err, rel.ErrNotFound) {
+			return Course{}, err
+		}
+
+		return Course{}, fmt.Errorf("db (read): %w", err)
 	}
 
-	learner1 := &Learner{
-		ID:       id,
+	if err := a.db.Preload(ctx, course, "lessons"); err != nil {
+		return Course{}, err
+	}
+
+	return *course, nil
+}
+
+func (a *back) addUserToCourse(ctx context.Context, user, course DBID) (Learner, error) {
+	learner := &Learner{
+		ID:       makeRandomID("l", 5),
 		UserID:   user,
 		CourseID: course,
 	}
 
-	if err := a.db.Insert(ctx, learner1); err != nil {
-		return nil, err
+	if err := a.db.Insert(ctx, learner); err != nil {
+		return Learner{}, err
 	}
 
-	return learner1, nil
+	return *learner, nil
 }
 
-func (a *back) getLearnersByCourse(ctx context.Context, course DBID) ([]*Learner, error) {
-	var out []*Learner
+func (a *back) getLearnersByCourse(ctx context.Context, course DBID) ([]Learner, error) {
+	var out []Learner
 
 	err := a.db.FindAll(ctx, &out, where.Eq("course", course))
 	if err != nil {
@@ -169,8 +190,8 @@ func (a *back) getLearnersByCourse(ctx context.Context, course DBID) ([]*Learner
 	return out, nil
 }
 
-func (a *back) getLearnersByUser(ctx context.Context, user DBID) ([]*Learner, error) {
-	var out []*Learner
+func (a *back) getLearnersByUser(ctx context.Context, user DBID) ([]Learner, error) {
+	var out []Learner
 
 	err := a.db.FindAll(ctx, &out, rel.Select("*", "course_x.*").JoinAssoc("course_x"), where.Eq("user", user))
 	if err != nil {
@@ -180,42 +201,35 @@ func (a *back) getLearnersByUser(ctx context.Context, user DBID) ([]*Learner, er
 	return out, nil
 }
 
-func (a *back) putLesson(ctx context.Context, id, course DBID, nomo string, kiamo time.Time) (*Lesson, error) {
-	if id == "" {
-		id = makeRandomID("ke", 5)
+func (a *back) putLesson(ctx context.Context, lesson Lesson) (Lesson, error) {
+	if lesson.ID == "" {
+		lesson.ID = makeRandomID("ke", 5)
 	}
 
-	coursePart1 := &Lesson{
-		ID:     id,
-		Course: course,
-		Name:   nomo,
-		Time:   kiamo,
+	if err := a.db.Insert(ctx, &lesson); err != nil {
+		return Lesson{}, err
 	}
 
-	if err := a.db.Insert(ctx, coursePart1); err != nil {
-		return nil, err
-	}
-
-	return coursePart1, nil
+	return lesson, nil
 }
 
-func (a *back) getLesson(ctx context.Context, id DBID) (*Lesson, error) {
-	coursePart := &Lesson{}
+func (a *back) getLesson(ctx context.Context, id DBID) (Lesson, error) {
+	lesson := &Lesson{}
 
-	err := a.db.Find(ctx, coursePart, where.Eq("id", id))
+	err := a.db.Find(ctx, lesson, where.Eq("id", id))
 	if err != nil {
 		if errors.Is(err, rel.ErrNotFound) {
-			return nil, err
+			return Lesson{}, err
 		}
 
-		return nil, fmt.Errorf("db (read): %w", err)
+		return Lesson{}, fmt.Errorf("db (read): %w", err)
 	}
 
-	return coursePart, nil
+	return *lesson, nil
 }
 
-func (a *back) getLessonsForCourse(ctx context.Context, course DBID) ([]*Lesson, error) {
-	var out []*Lesson
+func (a *back) getLessonsForCourse(ctx context.Context, course DBID) ([]Lesson, error) {
+	var out []Lesson
 
 	err := a.db.FindAll(ctx, &out, where.Eq("course", course), rel.SortDesc("time"))
 	if err != nil {
@@ -225,26 +239,22 @@ func (a *back) getLessonsForCourse(ctx context.Context, course DBID) ([]*Lesson,
 	return out, nil
 }
 
-func (a *back) putHomework(ctx context.Context, id, lernanto DBID, teksto string) (*Homework, error) {
-	if id == "" {
-		id = makeRandomID("ht", 5)
-	}
-
+func (a *back) putHomework(ctx context.Context, lernanto DBID, teksto string) (Homework, error) {
 	homework1 := &Homework{
-		ID:        id,
+		ID:        makeRandomID("ht", 5),
 		LearnerID: lernanto,
 		Text:      teksto,
 	}
 
 	if err := a.db.Insert(ctx, homework1); err != nil {
-		return nil, err
+		return Homework{}, err
 	}
 
-	return homework1, nil
+	return *homework1, nil
 }
 
-func (a *back) getHomeworksForUser(ctx context.Context, userID DBID) ([]*Homework, error) {
-	var out []*Homework
+func (a *back) getHomeworksForUser(ctx context.Context, userID DBID) ([]Homework, error) {
+	var out []Homework
 
 	err := a.db.FindAll(ctx, &out, where.Eq("user", userID))
 	if err != nil {
@@ -254,10 +264,10 @@ func (a *back) getHomeworksForUser(ctx context.Context, userID DBID) ([]*Homewor
 	return out, nil
 }
 
-func (a *back) getHomeworksForLesson(ctx context.Context, course, coursePart DBID) ([]*Homework, error) {
-	var out []*Homework
+func (a *back) getHomeworksForLesson(ctx context.Context, course, lessonID DBID) ([]Homework, error) {
+	var out []Homework
 
-	err := a.db.FindAll(ctx, &out, where.Eq("lesson", coursePart))
+	err := a.db.FindAll(ctx, &out, where.Eq("lesson", lessonID))
 	if err != nil {
 		return nil, fmt.Errorf("db (read): %w", err)
 	}
@@ -265,17 +275,17 @@ func (a *back) getHomeworksForLesson(ctx context.Context, course, coursePart DBI
 	return out, nil
 }
 
-func (a *back) getHomework(ctx context.Context, id DBID) (*Homework, error) {
+func (a *back) getHomework(ctx context.Context, id DBID) (Homework, error) {
 	homework := &Homework{}
 
 	err := a.db.Find(ctx, homework, where.Eq("id", id))
 	if err != nil {
 		if errors.Is(err, rel.ErrNotFound) {
-			return nil, err
+			return Homework{}, err
 		}
 
-		return nil, fmt.Errorf("db (read): %w", err)
+		return Homework{}, fmt.Errorf("db (read): %w", err)
 	}
 
-	return homework, nil
+	return *homework, nil
 }
